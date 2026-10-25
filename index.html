@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Student Registration – The South Punjab School</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<style>
+:root{--navy:#0b2447;--blue:#19376d;--light:#e8f1fb;--bg:#f4f7fb;--card:#fff;--tx:#14213d;--mut:#64748b;--ok:#16a34a;--err:#dc2626;--bd:#d9e2ee}
+[data-t=dark]{--bg:#0b1220;--card:#131c2e;--tx:#e6edf7;--mut:#94a3b8;--light:#1b2a44;--bd:#25324a}
+[hidden]{display:none!important}
+*{box-sizing:border-box}body{margin:0;font:15px system-ui,sans-serif;background:var(--bg);color:var(--tx)}
+.app{display:flex;min-height:100vh}
+aside{width:220px;background:var(--navy);color:#fff;padding:16px;flex-shrink:0}
+aside h1{font-size:15px;margin:0 0 18px;line-height:1.3}
+aside a{display:block;padding:10px;border-radius:8px;color:#cfe0f5;cursor:pointer;margin-bottom:4px}
+aside a.on,aside a:hover{background:var(--blue);color:#fff}
+main{flex:1;padding:18px;min-width:0}
+.top{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
+.top input{flex:1;min-width:160px}
+.menu{display:none}
+@media(max-width:760px){aside{position:fixed;left:-230px;top:0;bottom:0;z-index:5;transition:.2s}aside.open{left:0}.menu{display:block}}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.stat b{font-size:26px;display:block;color:var(--blue)}[data-t=dark] .stat b{color:#7db3f5}
+.stat span{color:var(--mut);font-size:13px}
+input,select,textarea,button{font:inherit;padding:9px 11px;border:1px solid var(--bd);border-radius:8px;background:var(--card);color:var(--tx)}
+button{cursor:pointer;background:var(--blue);color:#fff;border:0}button.s{background:var(--light);color:var(--tx)}button.d{background:var(--err)}
+button:disabled{opacity:.5;cursor:wait}
+table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 8px;border-bottom:1px solid var(--bd)}th{color:var(--mut);font-size:12px;text-transform:uppercase}
+.tw{overflow-x:auto}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}
+.form label{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--mut)}
+.form h3{grid-column:1/-1;margin:10px 0 0;color:var(--tx)}
+.bar{height:14px;background:var(--blue);border-radius:4px;min-width:2px}
+.row{display:flex;align-items:center;gap:8px;margin:5px 0}.row span:first-child{width:80px;font-size:13px}
+.tag{padding:2px 8px;border-radius:99px;font-size:12px;background:var(--light)}
+#toast{position:fixed;right:14px;bottom:14px;padding:11px 15px;border-radius:8px;color:#fff;display:none;z-index:9}
+.warn{background:#fff7e0;color:#7a5200;border:1px solid #f0cf72;padding:10px;border-radius:8px;grid-column:1/-1}
+.err{color:var(--err);font-size:12px}
+#login{max-width:340px;margin:12vh auto;display:grid;gap:10px}
+.empty{text-align:center;color:var(--mut);padding:30px}
+.pg{display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap}
+</style></head><body>
+<div id="toast"></div>
+
+<div id="login" class="card" hidden>
+  <h2 style="margin:0;color:var(--blue)">The South Punjab School</h2>
+  <div style="color:var(--mut)">Chowk Azam, Layyah · Staff login</div>
+  <input id="em" type="email" placeholder="Email" autocomplete="username">
+  <input id="pw" type="password" placeholder="Password" autocomplete="current-password">
+  <button id="lgBtn">Sign in</button>
+  <button class="s" id="rsBtn">Forgot password?</button>
+</div>
+
+<div class="app" id="app" hidden>
+<aside id="side"><h1>🏫 The South Punjab School<br><small style="font-weight:400;color:#9db8d9">Chowk Azam, Layyah</small></h1>
+  <a data-v="dash" class="on">📊 Dashboard</a><a data-v="list">👥 Students</a><a data-v="add" id="navAdd">➕ Register Student</a><a data-v="audit" id="navAudit">🧾 Audit Log</a><a data-v="users" id="navUsers">👤 Users</a><a data-v="settings" id="navSet">⚙ Settings</a><a data-v="classes" id="navCls">🏷 Classes</a><a data-v="promote" id="navPro">⬆ Promotion</a><a data-v="backup" id="navBk">💾 Backup</a>
+  <a id="theme">🌓 Theme</a><a id="out">🚪 Logout</a></aside>
+<main><div class="top"><button class="s menu" id="mn">☰</button>
+  <input id="gs" placeholder="Search name, admission no. or father's name…"><span class="tag" id="who"></span></div>
+  <div id="view"></div></main></div>
+
+<script>
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+const $ = s => document.querySelector(s), esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const LIST_COLS = "id,admission_no,full_name,father_name,gender,class_name,section,status,father_phone,admission_date,archived,photo_path,created_at,updated_at,dob,address,city";
+let rows=[],buildQ,role = "viewer", classes = [], st = {q:"",cls:"",status:"",arch:false,page:0,size:15};
+const canEdit = () => role !== "viewer";
+
+function toast(m, ok = true){const t=$("#toast");t.textContent=m;t.style.background=ok?"var(--ok)":"var(--err)";t.style.display="block";setTimeout(()=>t.style.display="none",3500)}
+function setTheme(t){document.documentElement.dataset.t=t;localStorage.setItem("sps_theme",t)} // theme pref only, no student data
+setTheme(localStorage.getItem("sps_theme")||"light");
+
+// ---------- Auth ----------
+async function boot(){
+  const {data:{session}} = await sb.auth.getSession();
+  if(!session){$("#login").hidden=false;$("#app").hidden=true;return}
+  const {data:p} = await sb.from("profiles").select("role,full_name").eq("id",session.user.id).single();
+  role = p?.role || "viewer";
+  const {data:c} = await sb.from("classes").select("name").eq("active",true).order("sort"); classes = (c||[]).map(x=>x.name);
+  $("#login").hidden=true;$("#app").hidden=false;$("#who").textContent=(p?.full_name||session.user.email)+" · "+role;
+  $("#navAdd").hidden=!canEdit();$("#navAudit").hidden=$("#navUsers").hidden=$("#navSet").hidden=$("#navCls").hidden=$("#navPro").hidden=$("#navBk").hidden=role!=="admin";
+  go("dash");
+}
+$("#lgBtn").onclick=async e=>{e.target.disabled=true;
+  const {error}=await sb.auth.signInWithPassword({email:$("#em").value.trim(),password:$("#pw").value});
+  e.target.disabled=false;error?toast("Login failed: "+error.message,false):boot()};
+$("#rsBtn").onclick=async()=>{const em=$("#em").value.trim();if(!em)return toast("Enter your email first",false);
+  const {error}=await sb.auth.resetPasswordForEmail(em,{redirectTo:location.href});error?toast(error.message,false):toast("Password reset email sent")};
+$("#out").onclick=async()=>{await sb.auth.signOut();location.reload()};
+$("#theme").onclick=()=>setTheme(document.documentElement.dataset.t==="dark"?"light":"dark");
+$("#mn").onclick=()=>$("#side").classList.toggle("open");
+document.querySelectorAll("aside a[data-v]").forEach(a=>a.onclick=()=>go(a.dataset.v));
+$("#gs").addEventListener("keydown",e=>{if(e.key==="Enter"){st.q=e.target.value.trim();st.page=0;go("list")}});
+
+function go(v,arg){
+  document.querySelectorAll("aside a[data-v]").forEach(a=>a.classList.toggle("on",a.dataset.v===v));
+  $("#side").classList.remove("open");
+  ({dash,list,add:()=>form(),edit:()=>form(arg),audit,users,settings,classes:classesView,promote,backup})[v](arg);
+}
+
+// ---------- Dashboard (real counts from DB) ----------
+async function dash(){
+  $("#view").innerHTML='<div class="empty">Loading…</div>';
+  const head=(f)=>{let q=sb.from("students").select("id",{count:"exact",head:true}).eq("archived",false);return f?f(q):q};
+  const monthStart=new Date();monthStart.setDate(1);
+  const [tot,act,male,fem,newm,rec,all]=await Promise.all([head(),head(q=>q.eq("status","Active")),head(q=>q.eq("gender","Male")),head(q=>q.eq("gender","Female")),
+    head(q=>q.gte("admission_date",monthStart.toISOString().slice(0,10))),
+    sb.from("students").select("id,admission_no,full_name,class_name,updated_at").eq("archived",false).order("updated_at",{ascending:false}).limit(6),
+    sb.from("students").select("class_name,admission_date").eq("archived",false).limit(5000)]);
+  const by={},mon={};(all.data||[]).forEach(s=>{by[s.class_name||"Unassigned"]=(by[s.class_name||"Unassigned"]||0)+1;const m=(s.admission_date||"").slice(0,7);if(m)mon[m]=(mon[m]||0)+1});
+  const mx=Math.max(1,...Object.values(by)), bars=o=>Object.entries(o).map(([k,v])=>`<div class="row"><span>${esc(k)}</span><div class="bar" style="width:${v/mx*60+1}%"></div><b>${v}</b></div>`).join("")||'<div class="empty">No records yet</div>';
+  const mons=Object.fromEntries(Object.entries(mon).sort().slice(-6));
+  $("#view").innerHTML=`<div class="grid">
+   ${[["Registered",tot.count],["Active",act.count],["Classes",classes.length],["New this month",newm.count],["Male",male.count],["Female",fem.count]].map(([a,b])=>`<div class="card stat"><b>${b??0}</b><span>${a}</span></div>`).join("")}</div>
+   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+   <div class="card"><h3>Class-wise students</h3>${bars(by)}</div>
+   <div class="card"><h3>Monthly admissions</h3>${bars(mons)}</div>
+   <div class="card"><h3>Recently updated</h3>${(rec.data||[]).map(s=>`<div class="row">${canEdit()?`<a href="#" onclick="go('edit','${s.id}');return false">${esc(s.full_name)}</a>`:`<span>${esc(s.full_name)}</span>`}<span class="tag">${esc(s.admission_no)}</span></div>`).join("")||'<div class="empty">Nothing yet</div>'}
+   ${canEdit()?'<button style="margin-top:10px" onclick="go(\'add\')">➕ Register student</button>':""}</div></div>`;
+}
+
+// ---------- Records: server-side search/filter/pagination ----------
+async function list(){
+  buildQ=(a,b)=>{let q=sb.from("students").select(LIST_COLS,{count:"exact"}).eq("archived",st.arch).order("created_at",{ascending:false}).range(a,b);
+  if(st.cls)q=q.eq("class_name",st.cls);if(st.status)q=q.eq("status",st.status);
+  if(st.q){const t=st.q.replace(/[,()%]/g," ");q=q.or(`full_name.ilike.%${t}%,father_name.ilike.%${t}%,admission_no.ilike.%${t}%,father_phone.ilike.%${t}%`)}
+  return q};
+  const {data,count,error}=await buildQ(st.page*st.size,st.page*st.size+st.size-1); if(error)return toast(error.message,false); rows=data;
+  const pages=Math.max(1,Math.ceil((count||0)/st.size));
+  $("#view").innerHTML=`<div class="card"><div class="top">
+   <select id="fc"><option value="">All classes</option>${classes.map(c=>`<option ${st.cls===c?"selected":""}>${esc(c)}</option>`).join("")}</select>
+   <select id="fs"><option value="">Any status</option>${["Active","Inactive","Withdrawn","Graduated"].map(c=>`<option ${st.status===c?"selected":""}>${c}</option>`).join("")}</select>
+   <select id="fa"><option value="0">Current</option><option value="1" ${st.arch?"selected":""}>Archived</option></select>
+   <button class="s" onclick="exportCSV()">⬇ Export CSV</button>${canEdit()?`<button class="s" onclick="pickCSV()">⬆ Import CSV</button><button class="s" onclick="tplCSV()">Template</button>`:""}<button class="s" onclick="printDoc(rows.map(r=>r.id),'card')">🪪 ID cards (this page)</button></div>
+   ${data.length?`<div class="tw"><table><tr><th>Adm. No</th><th>Name</th><th>Father</th><th>Class</th><th>Phone</th><th>Status</th><th></th></tr>
+   ${data.map(s=>`<tr><td>${esc(s.admission_no)}</td><td>${esc(s.full_name)}</td><td>${esc(s.father_name)}</td><td>${esc(s.class_name)} ${esc(s.section)}</td><td>${esc(s.father_phone)}</td><td><span class="tag">${esc(s.status)}</span></td>
+   <td style="white-space:nowrap"><button class="s" onclick="printDoc(['${s.id}'],'slip')">Slip</button> <button class="s" onclick="printDoc(['${s.id}'],'card')">ID</button> ${canEdit()?`<button class="s" onclick="go('edit','${s.id}')">Edit</button> <button class="s" onclick="archive('${s.id}',${!s.archived})">${s.archived?"Restore":"Archive"}</button>`:""}
+   ${role==="admin"?` <button class="d" onclick="del('${s.id}')">Delete</button>`:""}</td></tr>`).join("")}</table></div>`:'<div class="empty">No students match. Try clearing filters.</div>'}
+   <div class="pg"><button class="s" ${st.page?"":"disabled"} id="pv">‹</button><span>Page ${st.page+1} of ${pages} · ${count||0} records</span><button class="s" ${st.page+1>=pages?"disabled":""} id="nx">›</button></div></div>`;
+  $("#fc").onchange=e=>{st.cls=e.target.value;st.page=0;list()};$("#fs").onchange=e=>{st.status=e.target.value;st.page=0;list()};
+  $("#fa").onchange=e=>{st.arch=e.target.value==="1";st.page=0;list()};$("#pv").onclick=()=>{st.page--;list()};$("#nx").onclick=()=>{st.page++;list()};
+}
+async function archive(id,v){if(!confirm(v?"Archive this student?":"Restore this student?"))return;
+  const {error}=await sb.from("students").update({archived:v}).eq("id",id);error?toast(error.message,false):(toast(v?"Archived":"Restored"),list())}
+async function del(id){if(!confirm("Permanently delete this record? This cannot be undone. Consider Archive instead."))return;
+  const {error}=await sb.from("students").delete().eq("id",id);error?toast(error.message,false):(toast("Deleted"),list())}
+
+// ---------- Registration / edit form ----------
+const F=[["h","Student information"],["full_name","Full name *","text",1],["father_name","Father's name *","text",1],["dob","Date of birth","date"],["gender","Gender","sel",0,["Male","Female"]],
+ ["admission_date","Admission date","date"],["class_name","Class *","cls",1],["section","Section / group"],["prev_school","Previous school"],["prev_class","Previous class"],["status","Status","sel",0,["Active","Inactive","Withdrawn","Graduated"]],
+ ["h","Parent / guardian"],["father_phone","Father's mobile * (03XXXXXXXXX)","tel",1],["mother_name","Mother's name"],["mother_phone","Mother's contact","tel"],["guardian_name","Guardian name"],["guardian_relation","Relationship"],["father_cnic","Father's CNIC (optional)"],
+ ["h","Additional"],["address","Residential address"],["city","City / area"],["emergency_phone","Emergency contact","tel"],["medical_notes","Medical / special notes (restricted)"],["remarks","General remarks"]];
+async function form(id){
+  if(!canEdit())return $("#view").innerHTML='<div class="empty">Your role cannot register students.</div>';
+  let rec={status:"Active",admission_date:new Date().toISOString().slice(0,10)};
+  if(id){const {data,error}=await sb.rpc("student_full",{sid:id});if(error||!data)return toast("Could not load record",false);rec=data}
+  const inp=([k,l,t,r,o])=>k==="h"?`<h3>${l}</h3>`:`<label>${l}${t==="sel"?`<select name="${k}">${o.map(x=>`<option ${rec[k]===x?"selected":""}>${x}</option>`)}</select>`:t==="cls"?`<select name="${k}" required><option value="">Select…</option>${classes.map(x=>`<option ${rec[k]===x?"selected":""}>${esc(x)}</option>`).join("")}</select>`:`<input name="${k}" type="${t||"text"}" value="${esc(rec[k])}" ${r?"required":""}>`}<span class="err" id="e_${k}"></span></label>`;
+  $("#view").innerHTML=`<form class="card form" id="sf"><h2 style="grid-column:1/-1;margin:0">${id?"Edit "+esc(rec.admission_no):"Register new student"}</h2>
+   ${F.map(inp).join("")}<label>Photo (JPG/PNG/WebP, max 1 MB)<input type="file" id="ph" accept="image/jpeg,image/png,image/webp"><img id="pv" style="max-width:90px;border-radius:8px"></label>
+   <div id="dup" style="grid-column:1/-1"></div>
+   <div style="grid-column:1/-1;display:flex;gap:8px"><button id="sv">${id?"Update":"Submit registration"}</button><button type="button" class="s" onclick="go('list')">Cancel</button></div></form>`;
+  $("#ph").onchange=e=>{const f=e.target.files[0];if(f)$("#pv").src=URL.createObjectURL(f)};
+  let dupOK=false;
+  $("#sf").onsubmit=async e=>{e.preventDefault();const fd=Object.fromEntries(new FormData(e.target));
+    ["full_name","father_name"].forEach(k=>fd[k]=fd[k].trim());
+    const bad=[];document.querySelectorAll(".err").forEach(x=>x.textContent="");
+    if(fd.father_phone&&!/^03\d{9}$/.test(fd.father_phone))bad.push(["father_phone","Use format 03XXXXXXXXX"]);
+    ["mother_phone","emergency_phone"].forEach(k=>{if(fd[k]&&!/^03\d{9}$/.test(fd[k]))bad.push([k,"Use format 03XXXXXXXXX"])});
+    if(fd.dob&&new Date(fd.dob)>=new Date())bad.push(["dob","Must be in the past"]);
+    if(fd.father_cnic&&!/^\d{5}-?\d{7}-?\d$/.test(fd.father_cnic))bad.push(["father_cnic","13 digits"]);
+    if(bad.length){bad.forEach(([k,m])=>$("#e_"+k).textContent=m);return}
+    Object.keys(fd).forEach(k=>{if(fd[k]==="")fd[k]=null});
+    if(!id&&!dupOK){ // warn, never block
+      const {data:d}=await sb.from("students").select("admission_no,full_name,father_name,dob,father_phone").or(`and(full_name.ilike.${fd.full_name},father_name.ilike.${fd.father_name}),father_phone.eq.${fd.father_phone}`).limit(5);
+      if(d?.length){$("#dup").innerHTML=`<div class="warn">⚠ Possible duplicate(s): ${d.map(x=>esc(x.admission_no+" – "+x.full_name+" s/o "+x.father_name)).join("; ")}.<br>Click Submit again to register anyway.</div>`;dupOK=true;return}}
+    $("#sv").disabled=true; // prevents double submission
+    const file=$("#ph").files[0];
+    if(file){if(file.size>1048576){$("#sv").disabled=false;return toast("Photo exceeds 1 MB",false)}
+      const path=`${crypto.randomUUID()}.${file.name.split(".").pop().toLowerCase()}`;const up=await sb.storage.from("student-photos").upload(path,file);
+      if(up.error){$("#sv").disabled=false;return toast("Photo upload failed: "+up.error.message,false)}fd.photo_path=path}
+    fd.workflow=id?rec.workflow:"Submitted";
+    const r=id?await sb.from("students").update(fd).eq("id",id):await sb.from("students").insert(fd);
+    $("#sv").disabled=false;
+    if(r.error)return toast(r.error.code==="23505"?"Duplicate admission number":r.error.message,false);
+    toast(id?"Record updated":"Student registered");go("list");
+  };
+}
+
+// ---------- Stage 2: slips, ID cards, CSV ----------
+const SCHOOL="The South Punjab School Chowk Azam, Layyah", STAT=["Active","Inactive","Withdrawn","Graduated"];
+const CSVCOLS=["admission_no","full_name","father_name","dob","gender","admission_date","class_name","section","status","father_phone","address","city"];
+async function photoUrl(p){if(!p)return"";const {data}=await sb.storage.from("student-photos").createSignedUrl(p,600);return data?.signedUrl||""}
+async function printDoc(ids,type){
+  const w=window.open("","_blank");if(!w)return toast("Please allow pop-ups to print",false);
+  const {data:set}=await sb.from("settings").select("academic_session,school_name").single();const ses=esc(set?.academic_session||""),SCHOOL=esc(set?.school_name||"The South Punjab School");
+  const items=await Promise.all(rows.filter(r=>ids.includes(r.id)).map(async s=>{
+    const u=await photoUrl(s.photo_path),img=u?`<img src="${u}">`:`<div class="np">Photo</div>`;
+    return type==="slip"?`<div class="slip"><h2>${SCHOOL}</h2><h3>Student Registration Slip</h3><div class="top">${img}<div><b>Admission No: ${esc(s.admission_no)}</b><br>Session: ${ses}</div></div>
+      <table><tr><td>Student name</td><td>${esc(s.full_name)}</td></tr><tr><td>Father's name</td><td>${esc(s.father_name)}</td></tr><tr><td>Date of birth</td><td>${esc(s.dob)}</td></tr><tr><td>Gender</td><td>${esc(s.gender)}</td></tr>
+      <tr><td>Class / Section</td><td>${esc(s.class_name)} ${esc(s.section)}</td></tr><tr><td>Admission date</td><td>${esc(s.admission_date)}</td></tr><tr><td>Parent contact</td><td>${esc(s.father_phone)}</td></tr><tr><td>Address</td><td>${esc(s.address)} ${esc(s.city)}</td></tr></table>
+      <div class="sg"><div>Office stamp</div><div>Principal's signature</div></div></div>`
+    :`<div class="c"><div class="h">${SCHOOL}</div><div class="b">${img}<div><b>${esc(s.full_name)}</b><br>Adm: ${esc(s.admission_no)}<br>Class: ${esc(s.class_name)} ${esc(s.section)}<br>Session: ${ses}</div></div></div>`}));
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${type==="slip"?"Registration Slip":"ID Cards"}</title><style>
+   body{font:13px Arial;margin:0;padding:10mm;color:#000}img{width:30mm;height:36mm;object-fit:cover;border:1px solid #999}.np{width:30mm;height:36mm;border:1px dashed #999;display:grid;place-items:center;color:#999}
+   .slip{border:2px solid #0b2447;padding:8mm;page-break-after:always;max-width:170mm}.slip h2{margin:0;text-align:center;color:#0b2447}.slip h3{text-align:center;margin:4px 0 10px}.top{display:flex;gap:12px;align-items:center;margin-bottom:8px}
+   table{width:100%;border-collapse:collapse}td{border:1px solid #999;padding:6px}td:first-child{width:35%;background:#eef3fa}.sg{display:flex;justify-content:space-between;margin-top:30mm}.sg div{border-top:1px solid #000;padding-top:4px;width:60mm;text-align:center}
+   .c{display:inline-block;width:86mm;height:54mm;border:1px solid #0b2447;border-radius:3mm;margin:2mm;overflow:hidden;vertical-align:top;page-break-inside:avoid}.h{background:#0b2447;color:#fff;font-size:10px;text-align:center;padding:3mm 2mm}.b{display:flex;gap:3mm;padding:3mm}.c img,.c .np{width:22mm;height:26mm}
+   </style>${items.join("")||"<p>No records selected</p>"}`);w.document.close();
+  await Promise.all([...w.document.images].map(i=>i.complete?1:new Promise(r=>{i.onload=i.onerror=r})));w.focus();w.print();
+}
+const csvCell=v=>{v=String(v??"");if(/^[=+\-@]/.test(v))v="'"+v;return '"'+v.replace(/"/g,'""')+'"'}; // blocks Excel formula injection
+function dl(name,text){const a=document.createElement("a");a.href=URL.createObjectURL(new Blob(["\ufeff"+text],{type:"text/csv"}));a.download=name;a.click()}
+async function exportCSV(){const {data,error}=await buildQ(0,4999);if(error)return toast(error.message,false);
+  dl("students-"+new Date().toISOString().slice(0,10)+".csv",[CSVCOLS.join(","),...data.map(r=>CSVCOLS.map(c=>csvCell(r[c])).join(","))].join("\r\n"));toast(data.length+" records exported")}
+function tplCSV(){dl("import-template.csv",CSVCOLS.join(",")+"\r\n,Ali Khan,Ahmed Khan,2015-04-20,Male,2026-04-01,Class 1,A,Active,03001234567,Main Road,Chowk Azam")}
+function parseCSV(t){const out=[];let r=[],c="",q=false;t=t.replace(/^\ufeff/,"");
+  for(let i=0;i<t.length;i++){const ch=t[i];
+    if(q){if(ch=='"'){if(t[i+1]=='"'){c+='"';i++}else q=false}else c+=ch}
+    else if(ch=='"')q=true;else if(ch==","){r.push(c);c=""}
+    else if(ch=="\n"||ch=="\r"){if(ch=="\r"&&t[i+1]=="\n")i++;r.push(c);c="";if(r.some(x=>x.trim()))out.push(r);r=[]}else c+=ch}
+  r.push(c);if(r.some(x=>x.trim()))out.push(r);return out}
+function pickCSV(){const i=document.createElement("input");i.type="file";i.accept=".csv";i.onchange=()=>i.files[0]&&previewCSV(i.files[0]);i.click()}
+async function previewCSV(file){
+  const a=parseCSV(await file.text()),head=(a.shift()||[]).map(h=>h.trim());
+  if(!head.includes("full_name"))return toast("Header row must include full_name. Download the template.",false);
+  const {data:ex}=await sb.from("students").select("admission_no").limit(20000),have=new Set((ex||[]).map(x=>x.admission_no)),seen=new Set();
+  const recs=a.map((r,i)=>{const o={},e=[];head.forEach((h,j)=>{if(CSVCOLS.includes(h))o[h]=(r[j]||"").trim()||null});
+    if(o.father_phone&&/^3\d{9}$/.test(o.father_phone))o.father_phone="0"+o.father_phone; // Excel drops leading zero
+    if(!o.full_name)e.push("name missing");if(!o.father_name)e.push("father name missing");
+    if(!classes.includes(o.class_name))e.push("class must be one of the school classes");
+    if(o.father_phone&&!/^03\d{9}$/.test(o.father_phone))e.push("phone must be 03XXXXXXXXX");
+    if(o.dob&&!(/^\d{4}-\d\d-\d\d$/.test(o.dob)&&new Date(o.dob)<new Date()))e.push("dob must be YYYY-MM-DD, in the past");
+    if(o.gender&&!["Male","Female"].includes(o.gender))e.push("gender must be Male/Female");
+    if(o.status&&!STAT.includes(o.status))e.push("invalid status");
+    if(o.admission_no&&(have.has(o.admission_no)||seen.has(o.admission_no)))e.push("admission no already exists");
+    if(o.admission_no)seen.add(o.admission_no);
+    Object.keys(o).forEach(k=>o[k]===null&&delete o[k]);return {n:i+2,o,e}});
+  const ok=recs.filter(r=>!r.e.length),bad=recs.filter(r=>r.e.length);
+  $("#view").innerHTML=`<div class="card"><h3>Import preview</h3><p>${ok.length} valid · ${bad.length} with errors. Existing records are never overwritten.</p>
+   ${bad.length?`<div class="tw"><table><tr><th>Row</th><th>Name</th><th>Problem</th></tr>${bad.map(r=>`<tr><td>${r.n}</td><td>${esc(r.o.full_name)}</td><td class="err">${esc(r.e.join("; "))}</td></tr>`).join("")}</table></div><p>Fix these rows in your file and re-upload, or import only the valid rows.</p>`:""}
+   <button id="goImp" ${ok.length?"":"disabled"}>Import ${ok.length} valid rows</button> <button class="s" onclick="go('list')">Cancel</button></div>`;
+  $("#goImp").onclick=async e=>{e.target.disabled=true;let done=0;
+    for(let i=0;i<ok.length;i+=100){const {error}=await sb.from("students").insert(ok.slice(i,i+100).map(r=>r.o));if(error){toast(`Stopped after ${done} rows: ${error.message}`,false);break}done+=Math.min(100,ok.length-i)}
+    toast(`Imported ${done}, rejected ${bad.length}`,done>0);go("list")};
+}
+// ---------- Users & Settings (admin) ----------
+async function users(){
+  const {data,error}=await sb.rpc("admin_users");
+  if(error)return $("#view").innerHTML='<div class="empty">Admins only.</div>';
+  $("#view").innerHTML=`<div class="card"><p style="color:var(--mut)">New staff: Supabase → Authentication → Users → Add user. They appear here as Viewer; set their role below.</p>
+   <div class="tw"><table><tr><th>Email</th><th>Role</th></tr>${data.map(u=>`<tr><td>${esc(u.email)}</td><td><select onchange="setRole('${u.id}',this.value)">${["admin","staff","viewer"].map(r=>`<option ${u.role===r?"selected":""}>${r}</option>`).join("")}</select></td></tr>`).join("")}</table></div></div>`;
+}
+async function setRole(id,r){const {error}=await sb.rpc("set_role",{uid:id,new_role:r});error?toast(error.message,false):toast("Role updated");users()}
+async function settings(){
+  const {data:s,error}=await sb.from("settings").select("*").single();
+  if(error)return toast(error.message,false);
+  $("#view").innerHTML=`<form class="card form" id="stf"><h2 style="grid-column:1/-1;margin:0">Settings</h2>
+   <label>School name<input name="school_name" value="${esc(s.school_name)}" required></label>
+   <label>Admission prefix<input name="adm_prefix" value="${esc(s.adm_prefix)}" pattern="[A-Za-z0-9]{1,10}" required></label>
+   <label>Academic session<input name="academic_session" value="${esc(s.academic_session)}" placeholder="2026-27" required></label>
+   <label>Include year in admission no.<select name="adm_include_year"><option value="true" ${s.adm_include_year?"selected":""}>Yes</option><option value="false" ${s.adm_include_year?"":"selected"}>No</option></select></label>
+   <div style="grid-column:1/-1"><button>Save settings</button></div></form>`;
+  $("#stf").onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));f.adm_include_year=f.adm_include_year==="true";
+    const {error}=await sb.from("settings").update(f).eq("id",1);error?toast(error.message,false):toast("Settings saved")};
+}
+// ---------- Classes & Promotion (admin) ----------
+let clsCache=[];
+async function refreshClasses(){const {data}=await sb.from("classes").select("name").eq("active",true).order("sort");classes=(data||[]).map(x=>x.name)}
+async function classesView(){
+  const [{data:cl},{data:stu}]=await Promise.all([sb.from("classes").select("*").order("sort"),sb.from("students").select("class_name").eq("archived",false).limit(10000)]);
+  clsCache=cl||[];const cnt={};(stu||[]).forEach(s=>cnt[s.class_name]=(cnt[s.class_name]||0)+1);
+  $("#view").innerHTML=`<div class="card"><div class="top"><input id="ncn" placeholder="New class name"><button id="ncb">Add class</button></div>
+   <div class="tw"><table><tr><th>Class</th><th>Students</th><th>Status</th><th></th></tr>${clsCache.map(c=>`<tr><td>${esc(c.name)}</td><td>${cnt[c.name]||0}</td><td><span class="tag">${c.active?"Active":"Inactive"}</span></td>
+   <td style="white-space:nowrap"><button class="s" onclick="toggleClass(${c.id},${!c.active})">${c.active?"Deactivate":"Activate"}</button> <button class="s" onclick="renameClass(${c.id})">Rename</button></td></tr>`).join("")}</table></div>
+   <p style="color:var(--mut)">Classes that have students cannot be deleted. Deactivate them instead (hidden from new registrations, records stay safe).</p></div>`;
+  $("#ncb").onclick=async()=>{const n=$("#ncn").value.trim();if(!n)return;const mx=Math.max(0,...clsCache.map(c=>c.sort||0));
+    const {error}=await sb.from("classes").insert({name:n,sort:mx+1});if(error)return toast(error.message,false);await refreshClasses();toast("Class added");classesView()};
+}
+async function toggleClass(id,v){const {error}=await sb.from("classes").update({active:v}).eq("id",id);if(error)return toast(error.message,false);await refreshClasses();classesView()}
+async function renameClass(id){const old=clsCache.find(c=>c.id===id).name,n=(prompt("New name for "+old,old)||"").trim();if(!n||n===old)return;
+  const {error}=await sb.from("classes").update({name:n}).eq("id",id);if(error)return toast(error.message,false);await refreshClasses();toast("Renamed (students updated too)");classesView()}
+async function promote(){
+  await refreshClasses();const opts=sel=>classes.map(c=>`<option ${c===sel?"selected":""}>${esc(c)}</option>`).join("");
+  $("#view").innerHTML=`<div class="card"><h3>Promote students</h3><p style="color:var(--mut)">Tip: promote the highest class first (graduate Class 10, then 9→10, then 8→9…) so classes never mix.</p>
+   <div class="top"><select id="pf">${opts()}</select><span>→</span><select id="pt">${opts()}<option value="">🎓 Graduate</option></select><button id="pl">Preview</button></div><div id="pp"></div></div>`;
+  const nxt=()=>{$("#pt").value=classes[classes.indexOf($("#pf").value)+1]??""};nxt();$("#pf").onchange=nxt;
+  $("#pl").onclick=async()=>{const from=$("#pf").value,to=$("#pt").value;if(from===to)return toast("Choose a different target class",false);
+    const {data,error}=await sb.from("students").select("id,admission_no,full_name,father_name").eq("class_name",from).eq("archived",false).eq("status","Active").order("full_name").limit(1000);
+    if(error)return toast(error.message,false);if(!data.length)return $("#pp").innerHTML='<div class="empty">No active students in this class.</div>';
+    const {data:set}=await sb.from("settings").select("academic_session").single();
+    $("#pp").innerHTML=`<p>${data.length} students: <b>${esc(from)}</b> → <b>${to?esc(to):"Graduated"}</b>. Untick anyone who should stay.</p>
+     <div class="tw"><table>${data.map(s=>`<tr><td><input type="checkbox" class="pk" value="${s.id}" checked></td><td>${esc(s.admission_no)}</td><td>${esc(s.full_name)}</td><td>${esc(s.father_name)}</td></tr>`).join("")}</table></div><button id="pgo" style="margin-top:10px">Confirm promotion</button>`;
+    $("#pgo").onclick=async e=>{const ids=[...document.querySelectorAll(".pk:checked")].map(x=>x.value);if(!ids.length)return;
+      if(!confirm(`Move ${ids.length} students from ${from} to ${to||"Graduated"}? Their previous class is saved in history.`))return;
+      e.target.disabled=true;const {data:n,error}=await sb.rpc("promote",{ids,to_class:to||null,ses:set?.academic_session||null});
+      if(error){e.target.disabled=false;return toast(error.message,false)}toast(n+" students updated");promote()};
+  };
+}
+// ---------- Backup & Restore (admin) ----------
+async function backup(){
+  const {data:s}=await sb.from("settings").select("last_backup").single();
+  const last=s?.last_backup?new Date(s.last_backup).toLocaleString():"never";
+  $("#view").innerHTML=`<div class="card"><h3>Backup</h3><p>Last backup: <b>${last}</b></p>
+   <p style="color:var(--mut)">Downloads all students, classes, settings and class history as one file. Photos live separately in Supabase Storage and are not inside this file. Keep the file private: it contains children's personal data.</p>
+   <button id="bk">⬇ Download backup</button>
+   <h3 style="margin-top:24px">Restore</h3><p style="color:var(--mut)">Restore only ADDS students that are missing. Existing records are never overwritten or deleted.</p>
+   <button class="s" id="rs">⬆ Choose backup file…</button></div>`;
+  $("#bk").onclick=async e=>{e.target.disabled=true;const {data,error}=await sb.rpc("backup_all");e.target.disabled=false;
+    if(error)return toast(error.message,false);
+    const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:"application/json"}));
+    a.download="sps-backup-"+new Date().toISOString().slice(0,10)+".json";a.click();toast(data.students.length+" students backed up");backup()};
+  $("#rs").onclick=()=>{const i=document.createElement("input");i.type="file";i.accept=".json";i.onchange=async()=>{
+    let p;try{p=JSON.parse(await i.files[0].text())}catch{return toast("File is not valid JSON",false)}
+    if(p?.meta?.type!=="sps-backup"||!Array.isArray(p.students))return toast("This is not a valid backup file",false);
+    if(!confirm(`Backup from ${new Date(p.meta.created).toLocaleString()} with ${p.students.length} students.\n\nOnly missing students will be added. Nothing is overwritten or deleted. Continue?`))return;
+    const {data,error}=await sb.rpc("restore_students",{payload:p});
+    error?toast(error.message,false):(alert(`Restore complete.\nAdded: ${data.added}\nSkipped (already exist): ${data.skipped}`),backup())};i.click()};
+}
+// ---------- Audit log (admin) ----------
+async function audit(){
+  const {data,error}=await sb.from("audit_log").select("at,action,detail").order("at",{ascending:false}).limit(100);
+  if(error)return $("#view").innerHTML='<div class="empty">Admins only.</div>';
+  $("#view").innerHTML=`<div class="card tw"><table><tr><th>When</th><th>Action</th><th>Student</th></tr>${data.map(a=>`<tr><td>${new Date(a.at).toLocaleString()}</td><td>${esc(a.action)}</td><td>${esc(a.detail?.adm)} ${esc(a.detail?.name)}</td></tr>`).join("")||""}</table></div>`;
+}
+sb.auth.onAuthStateChange((ev)=>{if(ev==="PASSWORD_RECOVERY"){const p=prompt("Enter a new password (min 8 chars):");if(p&&p.length>=8)sb.auth.updateUser({password:p}).then(r=>toast(r.error?r.error.message:"Password updated",!r.error))}});
+boot();
+</script></body></html>
