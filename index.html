@@ -54,7 +54,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 8px;
 
 <div class="app" id="app" hidden>
 <aside id="side"><h1>🏫 The South Punjab School<br><small style="font-weight:400;color:#9db8d9">Chowk Azam, Layyah</small></h1>
-  <a data-v="dash" class="on">📊 Dashboard</a><a data-v="list">👥 Students</a><a data-v="quality" id="navQ">🔎 Data Quality</a><a data-v="add" id="navAdd">➕ Register Student</a><a data-v="audit" id="navAudit">🧾 Audit Log</a><a data-v="users" id="navUsers">👤 Users</a><a data-v="settings" id="navSet">⚙ Settings</a><a data-v="classes" id="navCls">🏷 Classes</a><a data-v="promote" id="navPro">⬆ Promotion</a><a data-v="backup" id="navBk">💾 Backup</a>
+  <a data-v="dash" class="on">📊 Dashboard</a><a data-v="list">👥 Students</a><a <a data-v="quality" id="navQ">🔎 Data Quality</a><a data-v="fees" id="navFee">💰 Fees</a><a data-v="add" id="navAdd">➕ Register Student</a><a data-v="audit" id="navAudit">🧾 Audit Log</a><a data-v="users" id="navUsers">👤 Users</a><a data-v="settings" id="navSet">⚙ Settings</a><a data-v="classes" id="navCls">🏷 Classes</a><a data-v="promote" id="navPro">⬆ Promotion</a><a data-v="backup" id="navBk">💾 Backup</a>
   <a id="theme">🌓 Theme</a><a id="out">🚪 Logout</a></aside>
 <main><div class="top"><button class="s menu" id="mn">☰</button>
   <input id="gs" placeholder="Search name, admission no. or father's name…"><span class="tag" id="who"></span></div>
@@ -79,7 +79,7 @@ async function boot(){
   role = p?.role || "viewer";
   const {data:c} = await sb.from("classes").select("name").eq("active",true).order("sort"); classes = (c||[]).map(x=>x.name);
   $("#login").hidden=true;$("#app").hidden=false;$("#who").textContent=(p?.full_name||session.user.email)+" · "+role;
- $("#navAdd").hidden=!canEdit();$("#navAudit").hidden=$("#navUsers").hidden=$("#navSet").hidden=$("#navCls").hidden=$("#navPro").hidden=$("#navBk").hidden=role!=="admin";
+ $("#navAdd").hidden=$("#navFee").hidden=!canEdit();$("#navAudit").hidden=$("#navUsers").hidden=$("#navSet").hidden=$("#navCls").hidden=$("#navPro").hidden=$("#navBk").hidden=role!=="admin";
   go("dash");
 }
 $("#lgBtn").onclick=async e=>{e.target.disabled=true;
@@ -96,7 +96,7 @@ $("#gs").addEventListener("keydown",e=>{if(e.key==="Enter"){st.q=e.target.value.
 function go(v,arg){
   document.querySelectorAll("aside a[data-v]").forEach(a=>a.classList.toggle("on",a.dataset.v===v));
   $("#side").classList.remove("open");
-  ({dash,list,add:()=>form(),edit:()=>form(arg),audit,users,settings,classes:classesView,promote,backup,quality})[v](arg);
+  ({dash,list,add:()=>form(),edit:()=>form(arg),audit,users,settings,classes:classesView,promote,backup,quality,fees})[v](arg);
 }
 
 // ---------- Dashboard (real counts from DB) ----------
@@ -339,6 +339,53 @@ async function editSec(id){const c=clsCache.find(x=>x.id===id),v=prompt("Section
   const {error}=await sb.from("classes").update({sections:v.split(",").map(x=>x.trim()).filter(Boolean).join(",")}).eq("id",id);error?toast(error.message,false):(toast("Sections saved"),classesView())}
 async function review(id,d){if(!confirm((d==="Approved"?"Approve":"Reject")+" this registration?"))return;
   const {error}=await sb.rpc("review_student",{sid:id,decision:d});error?toast(error.message,false):(toast(d),list())}
+  // ---------- Fees ----------
+const rs=n=>"Rs "+Number(n||0).toLocaleString("en-PK");
+const wa=x=>x.father_phone?`<a href="https://wa.me/92${x.father_phone.slice(1)}?text=${encodeURIComponent(`Assalam o Alaikum. ${x.full_name} ki fee ${Math.round(x.balance)} rupay baqaya hai. - The South Punjab School`)}" target="_blank" rel="noopener">WhatsApp</a>`:"";
+async function fees(){
+  const [{data:cl},{data:df}]=await Promise.all([sb.from("classes").select("id,name,monthly_fee").order("sort"),
+    sb.from("fee_defaulters").select("*").order("class_name").order("full_name").limit(1000)]);
+  const d=df||[],tot=d.reduce((a,x)=>a+Number(x.balance),0),m=new Date().toISOString().slice(0,7);
+  $("#view").innerHTML=`<div class="card"><h3>Collect fee</h3><div class="top"><input id="fq" placeholder="Admission no. or student name"><button id="fb">Find</button></div><div id="fr"></div></div>
+   ${role==="admin"?`<div class="card" style="margin-top:12px"><h3>Monthly fee per class</h3><div class="form">${(cl||[]).map(c=>`<label>${esc(c.name)}<input type="number" min="0" class="cf" data-id="${c.id}" value="${c.monthly_fee||0}"></label>`).join("")}</div>
+   <div class="top" style="margin-top:10px"><button id="scf">Save class fees</button><input type="month" id="gm" value="${m}" style="flex:0"><button class="s" id="gd">Generate dues for month</button></div></div>`:""}
+   <div class="card" style="margin-top:12px"><h3>Defaulters · ${d.length} students · ${rs(tot)} due</h3>
+   ${d.length?`<div class="tw"><table><tr><th>Adm</th><th>Name</th><th>Class</th><th>Due</th><th></th></tr>${d.map(x=>`<tr><td>${esc(x.admission_no)}</td><td>${esc(x.full_name)}</td><td>${esc(x.class_name)} ${esc(x.section)}</td><td><b>${rs(x.balance)}</b></td><td style="white-space:nowrap"><button class="s" onclick="feeOpen('${x.id}')">Collect</button> ${wa(x)}</td></tr>`).join("")}</table></div>`:'<div class="empty">No pending dues 🎉</div>'}</div>`;
+  $("#fb").onclick=feeFind;$("#fq").onkeydown=e=>{if(e.key==="Enter")feeFind()};
+  if(role==="admin"){
+    $("#scf").onclick=async()=>{for(const i of document.querySelectorAll(".cf")){const {error}=await sb.from("classes").update({monthly_fee:Number(i.value)||0}).eq("id",i.dataset.id);if(error)return toast(error.message,false)}toast("Class fees saved")};
+    $("#gd").onclick=async()=>{const mm=$("#gm").value;if(!confirm("Generate dues for "+mm+"? Students already charged for that month are skipped."))return;
+      const {data:n,error}=await sb.rpc("generate_dues",{m:mm});error?toast(error.message,false):(toast(n+" new charges created"),fees())};
+  }
+}
+async function feeFind(){const t=$("#fq").value.trim().replace(/[,()%]/g," ");if(!t)return;
+  const {data}=await sb.from("students").select("id,admission_no,full_name,father_name,class_name").eq("archived",false).or(`full_name.ilike.%${t}%,admission_no.ilike.%${t}%,father_name.ilike.%${t}%`).limit(8);
+  $("#fr").innerHTML=data?.length?data.map(s=>`<div class="row"><span style="width:auto">${esc(s.admission_no)} · ${esc(s.full_name)} s/o ${esc(s.father_name)} · ${esc(s.class_name)}</span><button class="s" onclick="feeOpen('${s.id}')">Open</button></div>`).join(""):'<div class="empty">No student found</div>'}
+async function feeOpen(id){
+  const [{data:s},{data:b},{data:ps}]=await Promise.all([sb.from("students").select("id,admission_no,full_name,class_name,section,discount").eq("id",id).single(),
+    sb.from("fee_balances").select("*").eq("student_id",id).single(),
+    sb.from("fee_payments").select("id,receipt_no,amount,paid_on,voided").eq("student_id",id).order("created_at",{ascending:false}).limit(10)]);
+  if(!s||!b)return toast("Could not load fee record",false);
+  $("#fr").innerHTML=`<div class="card" style="margin-top:8px"><b>${esc(s.full_name)}</b> (${esc(s.admission_no)}) · ${esc(s.class_name)} ${esc(s.section)}<br>Charged ${rs(b.charged)} · Paid ${rs(b.paid)} · <b style="color:var(${b.balance>0?"--err":"--ok"})">Balance ${rs(b.balance)}</b>
+   <div class="top" style="margin-top:8px"><input id="pa" type="number" min="1" placeholder="Amount" value="${b.balance>0?b.balance:""}"><input id="pn" placeholder="Note (e.g. Nov 2026 fee)"><button id="pr">Receive & print</button></div>
+   ${role==="admin"?`<div class="top">Monthly discount (Rs) <input id="dc" type="number" min="0" style="flex:0;width:110px" value="${s.discount||0}"><button class="s" id="dcb">Set</button></div>`:""}
+   <table>${(ps||[]).map(x=>`<tr><td>${esc(x.receipt_no)}</td><td>${esc(x.paid_on)}</td><td>${rs(x.amount)}${x.voided?" (void)":""}</td><td><button class="s" onclick="printReceipt('${x.id}')">Reprint</button>${role==="admin"&&!x.voided?` <button class="d" onclick="voidPay('${x.id}','${id}')">Void</button>`:""}</td></tr>`).join("")}</table></div>`;
+  $("#pr").onclick=async e=>{const a=Number($("#pa").value);if(!(a>0))return toast("Enter a valid amount",false);const w=window.open("","_blank");e.target.disabled=true;
+    const {data:p,error}=await sb.from("fee_payments").insert({student_id:id,amount:a,note:$("#pn").value.trim()||null}).select("id").single();
+    if(error){e.target.disabled=false;w&&w.close();return toast(error.message,false)}toast("Payment recorded");printReceipt(p.id,w);feeOpen(id)};
+  if(role==="admin")$("#dcb").onclick=async()=>{const {error}=await sb.rpc("set_discount",{sid:id,amt:Number($("#dc").value)||0});error?toast(error.message,false):toast("Discount saved")};
+}
+async function voidPay(pid,sid){if(!confirm("Void this receipt? It stays on record marked VOID and the amount returns to the student's balance."))return;
+  const {error}=await sb.rpc("void_payment",{pid});error?toast(error.message,false):(toast("Receipt voided"),feeOpen(sid))}
+async function printReceipt(id,w){w=w||window.open("","_blank");if(!w)return toast("Allow pop-ups to print",false);
+  const {data:p}=await sb.from("fee_payments").select("receipt_no,amount,paid_on,note,voided,student_id").eq("id",id).single();
+  const [{data:s},{data:set},{data:b}]=await Promise.all([sb.from("students").select("admission_no,full_name,father_name,class_name,section").eq("id",p.student_id).single(),
+    sb.from("settings").select("school_name").single(),sb.from("fee_balances").select("balance").eq("student_id",p.student_id).single()]);
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(p.receipt_no)}</title><style>body{font:14px Arial;padding:10mm}.r{border:2px solid #0b2447;max-width:140mm;padding:8mm}h2{margin:0;text-align:center;color:#0b2447}table{width:100%;border-collapse:collapse;margin-top:8px}td{border:1px solid #999;padding:6px}td:first-child{width:38%;background:#eef3fa}.v{color:#c00;text-align:center;font-weight:bold;font-size:20px}</style>
+   <div class="r"><h2>${esc(set?.school_name)}</h2><p style="text-align:center;margin:4px 0">Fee Receipt</p>${p.voided?'<div class="v">VOID</div>':""}
+   <table><tr><td>Receipt no.</td><td>${esc(p.receipt_no)}</td></tr><tr><td>Date</td><td>${esc(p.paid_on)}</td></tr><tr><td>Student</td><td>${esc(s.full_name)} (${esc(s.admission_no)})</td></tr><tr><td>Father</td><td>${esc(s.father_name)}</td></tr><tr><td>Class</td><td>${esc(s.class_name)} ${esc(s.section)}</td></tr>
+   <tr><td>Amount received</td><td><b>${rs(p.amount)}</b></td></tr><tr><td>Note</td><td>${esc(p.note)}</td></tr><tr><td>Remaining balance</td><td>${rs(b?.balance)}</td></tr></table><p style="margin-top:20mm">Received by (signature): ____________</p></div>`);
+  w.document.close();w.focus();setTimeout(()=>w.print(),400)}
 // ---------- Audit log (admin) ----------
 async function audit(){
   const {data,error}=await sb.from("audit_log").select("at,action,detail").order("at",{ascending:false}).limit(100);
