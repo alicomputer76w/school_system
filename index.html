@@ -54,7 +54,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 8px;
 
 <div class="app" id="app" hidden>
 <aside id="side"><h1>🏫 The South Punjab School<br><small style="font-weight:400;color:#9db8d9">Chowk Azam, Layyah</small></h1>
-  <a data-v="dash" class="on">📊 Dashboard</a><a data-v="list">👥 Students</a><a data-v="add" id="navAdd">➕ Register Student</a><a data-v="audit" id="navAudit">🧾 Audit Log</a><a data-v="users" id="navUsers">👤 Users</a><a data-v="settings" id="navSet">⚙ Settings</a><a data-v="classes" id="navCls">🏷 Classes</a><a data-v="promote" id="navPro">⬆ Promotion</a><a data-v="backup" id="navBk">💾 Backup</a>
+  <a data-v="dash" class="on">📊 Dashboard</a><a data-v="list">👥 Students</a><a data-v="quality" id="navQ">🔎 Data Quality</a><a data-v="add" id="navAdd">➕ Register Student</a><a data-v="audit" id="navAudit">🧾 Audit Log</a><a data-v="users" id="navUsers">👤 Users</a><a data-v="settings" id="navSet">⚙ Settings</a><a data-v="classes" id="navCls">🏷 Classes</a><a data-v="promote" id="navPro">⬆ Promotion</a><a data-v="backup" id="navBk">💾 Backup</a>
   <a id="theme">🌓 Theme</a><a id="out">🚪 Logout</a></aside>
 <main><div class="top"><button class="s menu" id="mn">☰</button>
   <input id="gs" placeholder="Search name, admission no. or father's name…"><span class="tag" id="who"></span></div>
@@ -79,7 +79,7 @@ async function boot(){
   role = p?.role || "viewer";
   const {data:c} = await sb.from("classes").select("name").eq("active",true).order("sort"); classes = (c||[]).map(x=>x.name);
   $("#login").hidden=true;$("#app").hidden=false;$("#who").textContent=(p?.full_name||session.user.email)+" · "+role;
-  $("#navAdd").hidden=!canEdit();$("#navAudit").hidden=$("#navUsers").hidden=$("#navSet").hidden=$("#navCls").hidden=$("#navPro").hidden=$("#navBk").hidden=role!=="admin";
+ $("#navAdd").hidden=!canEdit();$("#navAudit").hidden=$("#navUsers").hidden=$("#navSet").hidden=$("#navCls").hidden=$("#navPro").hidden=$("#navBk").hidden=role!=="admin";
   go("dash");
 }
 $("#lgBtn").onclick=async e=>{e.target.disabled=true;
@@ -96,7 +96,7 @@ $("#gs").addEventListener("keydown",e=>{if(e.key==="Enter"){st.q=e.target.value.
 function go(v,arg){
   document.querySelectorAll("aside a[data-v]").forEach(a=>a.classList.toggle("on",a.dataset.v===v));
   $("#side").classList.remove("open");
-  ({dash,list,add:()=>form(),edit:()=>form(arg),audit,users,settings,classes:classesView,promote,backup})[v](arg);
+  ({dash,list,add:()=>form(),edit:()=>form(arg),audit,users,settings,classes:classesView,promote,backup,quality})[v](arg);
 }
 
 // ---------- Dashboard (real counts from DB) ----------
@@ -316,6 +316,20 @@ async function backup(){
     if(!confirm(`Backup from ${new Date(p.meta.created).toLocaleString()} with ${p.students.length} students.\n\nOnly missing students will be added. Nothing is overwritten or deleted. Continue?`))return;
     const {data,error}=await sb.rpc("restore_students",{payload:p});
     error?toast(error.message,false):(alert(`Restore complete.\nAdded: ${data.added}\nSkipped (already exist): ${data.skipped}`),backup())};i.click()};
+}
+// ---------- Data quality report ----------
+async function quality(){
+  const {data,error}=await sb.from("students").select("id,admission_no,full_name,father_name,dob,gender,class_name,father_phone,address,photo_path").eq("archived",false).limit(5000);
+  if(error)return toast(error.message,false);
+  const key=s=>((s.full_name||"")+"|"+(s.father_name||"")).toLowerCase().replace(/\s+/g," ").trim();
+  const grp={};data.forEach(s=>(grp[key(s)]??=[]).push(s));
+  const dup=new Set();Object.values(grp).forEach(g=>g.length>1&&g.forEach(s=>dup.add(s.id)));
+  const res=[["Missing phone number",s=>!s.father_phone],["Missing photograph",s=>!s.photo_path],
+    ["Incomplete record (no date of birth, gender or address)",s=>!s.dob||!s.gender||!s.address],["No class assigned",s=>!s.class_name],
+    ["Possible duplicates (same name + father's name)",s=>dup.has(s.id)]].map(([t,f])=>[t,data.filter(f)]);
+  $("#view").innerHTML=`<div class="grid">${res.map(([t,r],i)=>`<div class="card stat" style="cursor:pointer" onclick="qShow(${i})"><b style="color:var(${r.length?"--err":"--ok"})">${r.length}</b><span>${t}</span></div>`).join("")}</div>
+   <div id="qd" class="card"><div class="empty">${data.length} students checked. Click a card to see the list.</div></div>`;
+  window.qShow=i=>{const [t,r]=res[i];$("#qd").innerHTML=r.length?`<h3>${t}</h3><div class="tw"><table>${r.slice(0,200).map(s=>`<tr><td>${esc(s.admission_no)}</td><td>${esc(s.full_name)}</td><td>${esc(s.father_name)}</td><td>${esc(s.class_name)}</td><td><button class="s" onclick="go('edit','${s.id}')">Fix</button></td></tr>`).join("")}</table></div>${r.length>200?`<p>Showing first 200 of ${r.length}.</p>`:""}`:'<div class="empty">✅ Nothing to fix here.</div>'};
 }
 // ---------- Audit log (admin) ----------
 async function audit(){
