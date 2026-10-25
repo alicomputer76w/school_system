@@ -63,7 +63,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 8px;
 <script>
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 const $ = s => document.querySelector(s), esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const LIST_COLS = "id,admission_no,full_name,father_name,gender,class_name,section,status,father_phone,admission_date,archived,photo_path,created_at,updated_at,dob,address,city";
+const LIST_COLS = "id,admission_no,full_name,father_name,gender,class_name,section,status,father_phone,admission_date,archived,photo_path,created_at,updated_at,dob,address,city,workflow";
 let rows=[],buildQ,role = "viewer", classes = [], st = {q:"",cls:"",status:"",arch:false,page:0,size:15};
 const canEdit = () => role !== "viewer";
 
@@ -134,9 +134,9 @@ async function list(){
    <select id="fa"><option value="0">Current</option><option value="1" ${st.arch?"selected":""}>Archived</option></select>
    <button class="s" onclick="exportCSV()">⬇ Export CSV</button>${canEdit()?`<button class="s" onclick="pickCSV()">⬆ Import CSV</button><button class="s" onclick="tplCSV()">Template</button>`:""}<button class="s" onclick="printDoc(rows.map(r=>r.id),'card')">🪪 ID cards (this page)</button></div>
    ${data.length?`<div class="tw"><table><tr><th>Adm. No</th><th>Name</th><th>Father</th><th>Class</th><th>Phone</th><th>Status</th><th></th></tr>
-   ${data.map(s=>`<tr><td>${esc(s.admission_no)}</td><td>${esc(s.full_name)}</td><td>${esc(s.father_name)}</td><td>${esc(s.class_name)} ${esc(s.section)}</td><td>${esc(s.father_phone)}</td><td><span class="tag">${esc(s.status)}</span></td>
+   ${data.map(s=>`<tr><td>${esc(s.admission_no)}</td><td>${esc(s.full_name)}</td><td>${esc(s.father_name)}</td><td>${esc(s.class_name)} ${esc(s.section)}</td><td>${esc(s.father_phone)}</td><td><span class="tag">${esc(s.status)}</span> <span class="tag">${esc(s.workflow)}</span></td>
    <td style="white-space:nowrap"><button class="s" onclick="printDoc(['${s.id}'],'slip')">Slip</button> <button class="s" onclick="printDoc(['${s.id}'],'card')">ID</button> ${canEdit()?`<button class="s" onclick="go('edit','${s.id}')">Edit</button> <button class="s" onclick="archive('${s.id}',${!s.archived})">${s.archived?"Restore":"Archive"}</button>`:""}
-   ${role==="admin"?` <button class="d" onclick="del('${s.id}')">Delete</button>`:""}</td></tr>`).join("")}</table></div>`:'<div class="empty">No students match. Try clearing filters.</div>'}
+   ${role==="admin"?` <button class="s" title="Approve" onclick="review('${s.id}','Approved')">✔</button> <button class="s" title="Reject" onclick="review('${s.id}','Rejected')">✖</button> <button class="d" onclick="del('${s.id}')">Delete</button>`:""}</td></tr>`).join("")}</table></div>`:'<div class="empty">No students match. Try clearing filters.</div>'}
    <div class="pg"><button class="s" ${st.page?"":"disabled"} id="pv">‹</button><span>Page ${st.page+1} of ${pages} · ${count||0} records</span><button class="s" ${st.page+1>=pages?"disabled":""} id="nx">›</button></div></div>`;
   $("#fc").onchange=e=>{st.cls=e.target.value;st.page=0;list()};$("#fs").onchange=e=>{st.status=e.target.value;st.page=0;list()};
   $("#fa").onchange=e=>{st.arch=e.target.value==="1";st.page=0;list()};$("#pv").onclick=()=>{st.page--;list()};$("#nx").onclick=()=>{st.page++;list()};
@@ -148,7 +148,7 @@ async function del(id){if(!confirm("Permanently delete this record? This cannot 
 
 // ---------- Registration / edit form ----------
 const F=[["h","Student information"],["full_name","Full name *","text",1],["father_name","Father's name *","text",1],["dob","Date of birth","date"],["gender","Gender","sel",0,["Male","Female"]],
- ["admission_date","Admission date","date"],["class_name","Class *","cls",1],["section","Section / group"],["prev_school","Previous school"],["prev_class","Previous class"],["status","Status","sel",0,["Active","Inactive","Withdrawn","Graduated"]],
+ ["admission_date","Admission date","date"],["class_name","Class *","cls",1],["section","Section / group","sec"],["prev_school","Previous school"],["prev_class","Previous class"],["status","Status","sel",0,["Active","Inactive","Withdrawn","Graduated"]],
  ["h","Parent / guardian"],["father_phone","Father's mobile * (03XXXXXXXXX)","tel",1],["mother_name","Mother's name"],["mother_phone","Mother's contact","tel"],["guardian_name","Guardian name"],["guardian_relation","Relationship"],["father_cnic","Father's CNIC (optional)"],
  ["h","Additional"],["address","Residential address"],["city","City / area"],["emergency_phone","Emergency contact","tel"],["medical_notes","Medical / special notes (restricted)"],["remarks","General remarks"]];
 async function form(id){
@@ -160,7 +160,10 @@ async function form(id){
    ${F.map(inp).join("")}<label>Photo (JPG/PNG/WebP, max 1 MB)<input type="file" id="ph" accept="image/jpeg,image/png,image/webp"><img id="pv" style="max-width:90px;border-radius:8px"></label>
    <div id="dup" style="grid-column:1/-1"></div>
    <div style="grid-column:1/-1;display:flex;gap:8px"><button id="sv">${id?"Update":"Submit registration"}</button><button type="button" class="s" onclick="go('list')">Cancel</button></div></form>`;
-  $("#ph").onchange=e=>{const f=e.target.files[0];if(f)$("#pv").src=URL.createObjectURL(f)};
+   const {data:cs}=await sb.from("classes").select("name,sections");const secMap=Object.fromEntries((cs||[]).map(c=>[c.name,(c.sections||"").split(",").map(x=>x.trim()).filter(Boolean)]));
+  const clsSel=$("#sf [name=class_name]"),sec=document.createElement("select");sec.name="section";$("#sf [name=section]").replaceWith(sec);
+  const fillSec=()=>{let l=secMap[clsSel.value]||[];if(rec.section&&!l.includes(rec.section))l=[...l,rec.section];sec.innerHTML='<option value="">—</option>'+l.map(x=>`<option ${x===rec.section?"selected":""}>${esc(x)}</option>`).join("")};
+  clsSel.onchange=fillSec;fillSec();
   let dupOK=false;
   $("#sf").onsubmit=async e=>{e.preventDefault();const fd=Object.fromEntries(new FormData(e.target));
     ["full_name","father_name"].forEach(k=>fd[k]=fd[k].trim());
@@ -271,8 +274,8 @@ async function classesView(){
   const [{data:cl},{data:stu}]=await Promise.all([sb.from("classes").select("*").order("sort"),sb.from("students").select("class_name").eq("archived",false).limit(10000)]);
   clsCache=cl||[];const cnt={};(stu||[]).forEach(s=>cnt[s.class_name]=(cnt[s.class_name]||0)+1);
   $("#view").innerHTML=`<div class="card"><div class="top"><input id="ncn" placeholder="New class name"><button id="ncb">Add class</button></div>
-   <div class="tw"><table><tr><th>Class</th><th>Students</th><th>Status</th><th></th></tr>${clsCache.map(c=>`<tr><td>${esc(c.name)}</td><td>${cnt[c.name]||0}</td><td><span class="tag">${c.active?"Active":"Inactive"}</span></td>
-   <td style="white-space:nowrap"><button class="s" onclick="toggleClass(${c.id},${!c.active})">${c.active?"Deactivate":"Activate"}</button> <button class="s" onclick="renameClass(${c.id})">Rename</button></td></tr>`).join("")}</table></div>
+   <div class="tw"><table><tr><th>Class</th><th>Sections</th><th>Students</th><th>Status</th><th></th></tr>${clsCache.map(c=>`<tr><td>${esc(c.name)}</td><td>${esc(c.sections)}</td><td>${cnt[c.name]||0}</td><td><span class="tag">${c.active?"Active":"Inactive"}</span></td>
+   <td style="white-space:nowrap"><button class="s" onclick="toggleClass(${c.id},${!c.active})">${c.active?"Deactivate":"Activate"}</button> <button class="s" onclick="renameClass(${c.id})">Rename</button> <button class="s" onclick="editSec(${c.id})">Sections</button></td></tr>`).join("")}</table></div>
    <p style="color:var(--mut)">Classes that have students cannot be deleted. Deactivate them instead (hidden from new registrations, records stay safe).</p></div>`;
   $("#ncb").onclick=async()=>{const n=$("#ncn").value.trim();if(!n)return;const mx=Math.max(0,...clsCache.map(c=>c.sort||0));
     const {error}=await sb.from("classes").insert({name:n,sort:mx+1});if(error)return toast(error.message,false);await refreshClasses();toast("Class added");classesView()};
@@ -331,6 +334,11 @@ async function quality(){
    <div id="qd" class="card"><div class="empty">${data.length} students checked. Click a card to see the list.</div></div>`;
   window.qShow=i=>{const [t,r]=res[i];$("#qd").innerHTML=r.length?`<h3>${t}</h3><div class="tw"><table>${r.slice(0,200).map(s=>`<tr><td>${esc(s.admission_no)}</td><td>${esc(s.full_name)}</td><td>${esc(s.father_name)}</td><td>${esc(s.class_name)}</td><td><button class="s" onclick="go('edit','${s.id}')">Fix</button></td></tr>`).join("")}</table></div>${r.length>200?`<p>Showing first 200 of ${r.length}.</p>`:""}`:'<div class="empty">✅ Nothing to fix here.</div>'};
 }
+// ---------- Sections & review ----------
+async function editSec(id){const c=clsCache.find(x=>x.id===id),v=prompt("Sections for "+c.name+" (comma separated, e.g. A,B,C). Leave empty for none.",c.sections||"");if(v===null)return;
+  const {error}=await sb.from("classes").update({sections:v.split(",").map(x=>x.trim()).filter(Boolean).join(",")}).eq("id",id);error?toast(error.message,false):(toast("Sections saved"),classesView())}
+async function review(id,d){if(!confirm((d==="Approved"?"Approve":"Reject")+" this registration?"))return;
+  const {error}=await sb.rpc("review_student",{sid:id,decision:d});error?toast(error.message,false):(toast(d),list())}
 // ---------- Audit log (admin) ----------
 async function audit(){
   const {data,error}=await sb.from("audit_log").select("at,action,detail").order("at",{ascending:false}).limit(100);
