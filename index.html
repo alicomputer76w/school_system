@@ -179,7 +179,8 @@ async function form(id){
     if(bad.length){bad.forEach(([k,m])=>$("#e_"+k).textContent=m);return}
     Object.keys(fd).forEach(k=>{if(fd[k]==="")fd[k]=null});
     if(!id&&!dupOK){ // warn, never block
-      const {data:d}=await sb.from("students").select("admission_no,full_name,father_name,dob,father_phone").or(`and(full_name.ilike.${fd.full_name},father_name.ilike.${fd.father_name}),father_phone.eq.${fd.father_phone}`).limit(5);
+      const {data:all}=await sb.from("students").select("admission_no,full_name,father_name,dob,father_phone").ilike("full_name",fd.full_name.replace(/[%_\\]/g,"\\$&")).limit(10);
+const d=(all||[]).filter(x=>(x.father_name||"").toLowerCase()===(fd.father_name||"").toLowerCase()||(fd.dob&&x.dob===fd.dob)||(fd.father_phone&&x.father_phone===fd.father_phone));
       if(d?.length){$("#dup").innerHTML=`<div class="warn">⚠ Possible duplicate(s): ${d.map(x=>esc(x.admission_no+" – "+x.full_name+" s/o "+x.father_name)).join("; ")}.<br>Click Submit again to register anyway.</div>`;dupOK=true;return}}
     $("#sv").disabled=true; // prevents double submission
     const file=$("#ph").files[0];
