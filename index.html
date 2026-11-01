@@ -54,7 +54,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 8px;
 
 <div class="app" id="app" hidden>
 <aside id="side"><h1>🏫 The South Punjab School<br><small style="font-weight:400;color:#9db8d9">Chowk Azam, Layyah</small></h1>
-  <a data-v="dash" class="on">📊 Dashboard</a><a data-v="list">👥 Students</a><a <a data-v="quality" id="navQ">🔎 Data Quality</a><a data-v="fees" id="navFee">💰 Fees</a><a data-v="attendance" id="navAtt">✅ Attendance</a><a data-v="certs" id="navCert">📜 Certificates</a><a data-v="add" id="navAdd">➕ Register Student</a><a data-v="audit" id="navAudit">🧾 Audit Log</a><a data-v="users" id="navUsers">👤 Users</a><a data-v="settings" id="navSet">⚙ Settings</a><a data-v="classes" id="navCls">🏷 Classes</a><a data-v="promote" id="navPro">⬆ Promotion</a><a data-v="backup" id="navBk">💾 Backup</a>
+  <a data-v="dash" class="on">📊 Dashboard</a><a data-v="list">👥 Students</a><a <a data-v="quality" id="navQ">🔎 Data Quality</a><a data-v="fees" id="navFee">💰 Fees</a><a data-v="attendance" id="navAtt">✅ Attendance</a><a data-v="certs" id="navCert">📜 Certificates</a><a data-v="results" id="navRes">📝 Results</a><a data-v="add" id="navAdd">➕ Register Student</a><a data-v="audit" id="navAudit">🧾 Audit Log</a><a data-v="users" id="navUsers">👤 Users</a><a data-v="settings" id="navSet">⚙ Settings</a><a data-v="classes" id="navCls">🏷 Classes</a><a data-v="promote" id="navPro">⬆ Promotion</a><a data-v="backup" id="navBk">💾 Backup</a>
   <a id="theme">🌓 Theme</a><a id="out">🚪 Logout</a></aside>
 <main><div class="top"><button class="s menu" id="mn">☰</button>
   <input id="gs" placeholder="Search name, admission no. or father's name…"><span class="tag" id="who"></span></div>
@@ -82,6 +82,7 @@ async function boot(){
  $("#navAdd").hidden=$("#navFee").hidden=!canEdit();$("#navAudit").hidden=$("#navUsers").hidden=$("#navSet").hidden=$("#navCls").hidden=$("#navPro").hidden=$("#navBk").hidden=role!=="admin";
  $("#navAtt").hidden=!canEdit();
    $("#navCert").hidden=!canEdit();
+     $("#navRes").hidden=!canEdit();
   go("dash");
 }
 
@@ -99,7 +100,7 @@ $("#gs").addEventListener("keydown",e=>{if(e.key==="Enter"){st.q=e.target.value.
 function go(v,arg){
   document.querySelectorAll("aside a[data-v]").forEach(a=>a.classList.toggle("on",a.dataset.v===v));
   $("#side").classList.remove("open");
-  ({dash,list,add:()=>form(),edit:()=>form(arg),audit,users,settings,classes:classesView,promote,backup,quality,fees,attendance,certs})[v](arg);
+  ({dash,list,add:()=>form(),edit:()=>form(arg),audit,users,settings,classes:classesView,promote,backup,quality,fees,attendance,certs,results})[v](arg);
 }
 
 // ---------- Dashboard (real counts from DB) ----------
@@ -573,6 +574,81 @@ async function printCert(id,w){w=w||window.open("","_blank");if(!w)return toast(
   await new Promise(r=>{if(w.document.readyState==="complete")r();else w.addEventListener("load",r);setTimeout(r,3500)});
   await Promise.race([w.document.fonts.ready,new Promise(r=>setTimeout(r,1500))]);
   w.print()}
+// ---------- Results ----------
+const GRADES=[[80,"A+"],[70,"A"],[60,"B"],[50,"C"],[40,"D"],[33,"E"],[0,"F"]],PASS_PCT=33; // change grading / pass mark here
+const gradeOf=p=>GRADES.find(([m])=>p>=m)[1];
+async function allRows(mk){let out=[],i=0;for(;;){const {data,error}=await mk().range(i,i+999);if(error)throw error;out=out.concat(data);if(data.length<1000)return out;i+=1000}}
+async function results(){
+  await refreshClasses();
+  const {data:ex}=await sb.from("exams").select("id,name").order("id",{ascending:false});
+  const E=(ex||[]).map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join(""),C=classes.map(c=>`<option>${esc(c)}</option>`).join("");
+  $("#view").innerHTML=`${role==="admin"?`<div class="card"><h3>Exams</h3><div class="top"><input id="xn" placeholder="e.g. Mid-Term 2026"><button id="xa">Add exam</button></div>
+   <h3 style="margin-top:14px">Subjects of a class</h3><div class="top"><select id="sc">${C}</select><button class="s" id="sl">Load</button></div>
+   <textarea id="st" rows="6" style="width:100%" placeholder="One subject per line, e.g.&#10;Urdu=100&#10;English=100&#10;Math=75"></textarea><button id="ss" style="margin-top:8px">Save subjects</button></div>`:""}
+   <div class="card" style="margin-top:12px"><h3>Enter marks</h3><div class="top"><select id="me">${E}</select><select id="mc">${C}</select><select id="ms"></select><button id="ml">Load students</button></div><div id="mk"></div></div>
+   <div class="card" style="margin-top:12px"><h3>Results</h3><div class="top"><select id="re">${E}</select><select id="rc">${C}</select><button id="rb">Result sheet</button><button class="s" id="rp">Print report cards</button></div><div id="rs"></div></div>`;
+  const fillSubs=async()=>{const {data}=await sb.from("subjects").select("id,name,max_marks").eq("class_name",$("#mc").value).order("sort");
+    $("#ms").innerHTML=(data||[]).map(x=>`<option value="${x.id}" data-max="${x.max_marks}">${esc(x.name)} (${x.max_marks})</option>`).join("")||"<option value=''>No subjects set</option>"};
+  $("#mc").onchange=fillSubs;fillSubs();$("#ml").onclick=marksLoad;$("#rb").onclick=()=>resSheet(false);$("#rp").onclick=()=>resSheet(true);
+  if(role!=="admin")return;
+  $("#xa").onclick=async()=>{const n=$("#xn").value.trim();if(!n)return;const {error}=await sb.from("exams").insert({name:n});error?toast(error.message,false):(toast("Exam added"),results())};
+  $("#sl").onclick=async()=>{const {data}=await sb.from("subjects").select("name,max_marks").eq("class_name",$("#sc").value).order("sort");$("#st").value=(data||[]).map(x=>x.name+"="+x.max_marks).join("\n")};
+  $("#ss").onclick=async()=>{const cls=$("#sc").value,items=$("#st").value.split("\n").map(l=>l.trim()).filter(Boolean).map((l,i)=>{const [n,m]=l.split("=");return {class_name:cls,name:n.trim(),max_marks:Number(m)||100,sort:i}});
+    if(!items.length)return toast("Add at least one subject",false);
+    const {data:cur}=await sb.from("subjects").select("id,name").eq("class_name",cls);
+    const {error}=await sb.from("subjects").upsert(items,{onConflict:"class_name,name"});if(error)return toast(error.message,false);
+    const kept=[];for(const c of cur||[])if(!items.some(x=>x.name===c.name)){const r=await sb.from("subjects").delete().eq("id",c.id);if(r.error)kept.push(c.name)}
+    toast(kept.length?"Saved. Not removed (has marks): "+kept.join(", "):"Subjects saved",!kept.length);results()};
+}
+async function marksLoad(){
+  const e=$("#me").value,c=$("#mc").value,sid=$("#ms").value,max=Number($("#ms").selectedOptions[0]?.dataset.max);
+  if(!e||!sid)return toast("Choose exam, class and subject (admin must add exams and subjects first)",false);
+  const [{data:st,error},{data:old}]=await Promise.all([sb.from("students").select("id,admission_no,full_name").eq("class_name",c).eq("archived",false).eq("status","Active").order("full_name").limit(500),
+    sb.from("marks").select("student_id,obtained").eq("exam_id",e).eq("subject_id",sid).eq("class_name",c).limit(1000)]);
+  if(error)return toast(error.message,false);
+  const cur=Object.fromEntries((old||[]).map(x=>[x.student_id,x.obtained]));
+  $("#mk").innerHTML=st.length?`<div class="tw"><table>${st.map(s=>`<tr><td>${esc(s.admission_no)}</td><td>${esc(s.full_name)}</td><td><input type="number" class="mi" data-id="${s.id}" min="0" max="${max}" step="0.5" style="width:90px" value="${cur[s.id]??""}"> / ${max}</td></tr>`).join("")}</table></div><button id="msv" style="margin-top:10px">Save marks</button>`:'<div class="empty">No active students in this class.</div>';
+  if(!st.length)return;
+  $("#msv").onclick=async ev=>{const rows=[...document.querySelectorAll(".mi")].filter(i=>i.value!=="").map(i=>({exam_id:Number(e),student_id:i.dataset.id,subject_id:Number(sid),class_name:c,obtained:Number(i.value)}));
+    if(!rows.length)return toast("Enter at least one mark",false);
+    if(rows.some(r=>r.obtained<0||r.obtained>max))return toast("Marks must be between 0 and "+max,false);
+    ev.target.disabled=true;const {error}=await sb.from("marks").upsert(rows,{onConflict:"exam_id,student_id,subject_id"});ev.target.disabled=false;
+    error?toast(error.message,false):toast("Marks saved ("+rows.length+" students)")};
+}
+async function resSheet(print){
+  const e=$("#re").value,c=$("#rc").value,en=$("#re").selectedOptions[0]?.text;if(!e)return toast("Create an exam first",false);
+  const w=print?window.open("","_blank"):null;if(print&&!w)return toast("Allow pop-ups to print",false);
+  try{
+    const [{data:st},{data:sub},mk,{data:set}]=await Promise.all([
+      sb.from("students").select("id,admission_no,full_name,father_name,full_name_ur").eq("class_name",c).eq("archived",false).eq("status","Active").order("full_name").limit(500),
+      sb.from("subjects").select("id,name,max_marks").eq("class_name",c).order("sort"),
+      allRows(()=>sb.from("marks").select("student_id,subject_id,obtained").eq("exam_id",e).eq("class_name",c).order("student_id").order("subject_id")),
+      sb.from("settings").select("school_name,academic_session").single()]);
+    if(!sub.length)throw new Error("No subjects set for this class");
+    const m={};mk.forEach(x=>(m[x.student_id]??={})[x.subject_id]=x.obtained);
+    const tot=sub.reduce((a,x)=>a+Number(x.max_marks),0);
+    const rows=st.map(s=>{const mm=m[s.id]||{};let got=0,miss=0,fail=false;
+      sub.forEach(x=>{const v=mm[x.id];if(v==null)miss++;else{got+=Number(v);if(v/x.max_marks*100<PASS_PCT)fail=true}});
+      return {...s,mm,got,pct:got/tot*100,miss,res:miss?"Incomplete":fail?"Fail":"Pass"}});
+    rows.forEach(r=>r.rank=r.miss?"-":1+rows.filter(o=>!o.miss&&o.got>r.got).length);
+    rows.sort((a,b)=>(a.miss-b.miss)||(b.got-a.got)||a.full_name.localeCompare(b.full_name));
+    if(!print){$("#rs").innerHTML=`<p>${esc(en)} · ${esc(c)} · ${rows.length} students · total marks ${tot}</p><div class="tw"><table><tr><th>Rank</th><th>Adm</th><th>Name</th>${sub.map(x=>`<th>${esc(x.name)}<br><small>${x.max_marks}</small></th>`).join("")}<th>Total</th><th>%</th><th>Grade</th><th>Result</th></tr>
+      ${rows.map(r=>`<tr><td>${r.rank}</td><td>${esc(r.admission_no)}</td><td>${esc(r.full_name)}</td>${sub.map(x=>`<td>${r.mm[x.id]??"-"}</td>`).join("")}<td><b>${r.got}</b></td><td>${r.pct.toFixed(1)}</td><td>${r.miss?"-":gradeOf(r.pct)}</td><td>${r.res}</td></tr>`).join("")}</table></div>`;return}
+    const card=r=>`<div class="pg"><h2>${esc(set?.school_name)}</h2><h3>Report Card · ${esc(en)} · ${esc(set?.academic_session)}</h3>
+      <table class="i"><tr><td class="l">Student</td><td class="l"><b>${esc(r.full_name)}</b>${urSpan(r.full_name_ur)}</td><td class="l">Class</td><td class="l">${esc(c)}</td></tr><tr><td class="l">Father</td><td class="l">${esc(r.father_name)}</td><td class="l">Admission No.</td><td class="l">${esc(r.admission_no)}</td></tr></table>
+      <table><tr><th class="l">Subject</th><th>Total</th><th>Obtained</th><th>Grade</th></tr>${sub.map(x=>{const v=r.mm[x.id];return `<tr><td class="l">${esc(x.name)}</td><td>${x.max_marks}</td><td>${v??"-"}</td><td>${v==null?"-":gradeOf(v/x.max_marks*100)}</td></tr>`}).join("")}
+      <tr class="t"><td class="l">Total</td><td>${tot}</td><td>${r.got}</td><td>${r.miss?"-":gradeOf(r.pct)}</td></tr></table>
+      <table class="i"><tr><td>Percentage<br><b>${r.pct.toFixed(1)}%</b></td><td>Position<br><b>${r.rank}</b></td><td>Result<br><b>${r.res}</b></td></tr></table>
+      <div class="sg"><div>Class teacher</div><div>Principal</div><div>Parent</div></div></div>`;
+    w.document.write(`<!doctype html><meta charset="utf-8"><title>Report cards</title><link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@500&display=swap" rel="stylesheet"><style>
+     @page{size:A4;margin:10mm}body{font:13px Arial;margin:0;-webkit-print-color-adjust:exact;print-color-adjust:exact}.pg{page-break-after:always;border:2px solid #0b2447;padding:10mm;min-height:270mm}.pg:last-child{page-break-after:auto}
+     h2{margin:0;text-align:center;color:#0b2447}h3{text-align:center;margin:4px 0 14px}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{border:1px solid #999;padding:6px;text-align:center}th{background:#0b2447;color:#fff}.l{text-align:left}
+     .t td{background:#eef3fa;font-weight:bold}.i td{background:#f8fafc}.ur{display:block;direction:rtl;font:15px 'Noto Nastaliq Urdu','Jameel Noori Nastaleeq',Tahoma,serif;line-height:1.9}
+     .sg{display:flex;justify-content:space-between;margin-top:30mm}.sg div{border-top:1px solid #000;padding-top:4px;width:48mm;text-align:center}</style>${rows.map(card).join("")}`);
+    w.document.close();w.focus();
+    await new Promise(r=>{if(w.document.readyState==="complete")r();else w.addEventListener("load",r);setTimeout(r,3500)});w.print();
+  }catch(err){w&&w.close();toast(err.message||"Could not load results",false)}
+}
 
 
 
