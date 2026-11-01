@@ -54,7 +54,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 8px;
 
 <div class="app" id="app" hidden>
 <aside id="side"><h1>🏫 The South Punjab School<br><small style="font-weight:400;color:#9db8d9">Chowk Azam, Layyah</small></h1>
-  <a data-v="dash" class="on">📊 Dashboard</a><a data-v="list">👥 Students</a><a <a data-v="quality" id="navQ">🔎 Data Quality</a><a data-v="fees" id="navFee">💰 Fees</a><a data-v="attendance" id="navAtt">✅ Attendance</a><a data-v="add" id="navAdd">➕ Register Student</a><a data-v="audit" id="navAudit">🧾 Audit Log</a><a data-v="users" id="navUsers">👤 Users</a><a data-v="settings" id="navSet">⚙ Settings</a><a data-v="classes" id="navCls">🏷 Classes</a><a data-v="promote" id="navPro">⬆ Promotion</a><a data-v="backup" id="navBk">💾 Backup</a>
+  <a data-v="dash" class="on">📊 Dashboard</a><a data-v="list">👥 Students</a><a <a data-v="quality" id="navQ">🔎 Data Quality</a><a data-v="fees" id="navFee">💰 Fees</a><a data-v="attendance" id="navAtt">✅ Attendance</a><a data-v="certs" id="navCert">📜 Certificates</a><a data-v="add" id="navAdd">➕ Register Student</a><a data-v="audit" id="navAudit">🧾 Audit Log</a><a data-v="users" id="navUsers">👤 Users</a><a data-v="settings" id="navSet">⚙ Settings</a><a data-v="classes" id="navCls">🏷 Classes</a><a data-v="promote" id="navPro">⬆ Promotion</a><a data-v="backup" id="navBk">💾 Backup</a>
   <a id="theme">🌓 Theme</a><a id="out">🚪 Logout</a></aside>
 <main><div class="top"><button class="s menu" id="mn">☰</button>
   <input id="gs" placeholder="Search name, admission no. or father's name…"><span class="tag" id="who"></span></div>
@@ -81,6 +81,7 @@ async function boot(){
   $("#login").hidden=true;$("#app").hidden=false;$("#who").textContent=(p?.full_name||session.user.email)+" · "+role;
  $("#navAdd").hidden=$("#navFee").hidden=!canEdit();$("#navAudit").hidden=$("#navUsers").hidden=$("#navSet").hidden=$("#navCls").hidden=$("#navPro").hidden=$("#navBk").hidden=role!=="admin";
  $("#navAtt").hidden=!canEdit();
+   $("#navCert").hidden=!canEdit();
   go("dash");
 }
 
@@ -98,7 +99,7 @@ $("#gs").addEventListener("keydown",e=>{if(e.key==="Enter"){st.q=e.target.value.
 function go(v,arg){
   document.querySelectorAll("aside a[data-v]").forEach(a=>a.classList.toggle("on",a.dataset.v===v));
   $("#side").classList.remove("open");
-  ({dash,list,add:()=>form(),edit:()=>form(arg),audit,users,settings,classes:classesView,promote,backup,quality,fees,attendance})[v](arg);
+  ({dash,list,add:()=>form(),edit:()=>form(arg),audit,users,settings,classes:classesView,promote,backup,quality,fees,attendance,certs})[v](arg);
 }
 
 // ---------- Dashboard (real counts from DB) ----------
@@ -430,6 +431,37 @@ async function attReport(){
   $("#ab").innerHTML=`<h3 style="margin-top:14px">${esc(c)} · ${m} · ${days} school days marked</h3><div class="tw"><table><tr><th>Adm</th><th>Name</th><th>Present</th><th>Absent</th><th>Leave</th><th>%</th></tr>
    ${st.map(s=>{const x=n[s.id]||{present:0,absent:0,leaves:0},t=x.present+x.absent+x.leaves;return `<tr><td>${esc(s.admission_no)}</td><td>${esc(s.full_name)}</td><td>${x.present}</td><td>${x.absent}</td><td>${x.leaves}</td><td>${t?Math.round(x.present/t*100)+"%":"-"}</td></tr>`}).join("")}</table></div>`;
 }
+// ---------- Certificates ----------
+let cfound={};
+async function certs(){
+  const {data}=await sb.from("certificates").select("id,cert_no,kind,issued_on,students(full_name,admission_no)").order("created_at",{ascending:false}).limit(15);
+  $("#view").innerHTML=`<div class="card"><h3>Issue certificate</h3><div class="top"><input id="cq" placeholder="Admission no. or student name"><button id="cfd">Find</button></div><div id="cr"></div></div>
+   <div class="card" style="margin-top:12px"><h3>Recently issued</h3>${(data||[]).length?`<div class="tw"><table><tr><th>No.</th><th>Type</th><th>Student</th><th>Date</th><th></th></tr>${data.map(c=>`<tr><td>${esc(c.cert_no)}</td><td>${esc(c.kind)}</td><td>${esc(c.students?.full_name)} (${esc(c.students?.admission_no)})</td><td>${esc(c.issued_on)}</td><td><button class="s" onclick="printCert('${c.id}')">Reprint</button></td></tr>`).join("")}</table></div>`:'<div class="empty">Nothing issued yet</div>'}</div>`;
+  const find=async()=>{const t=$("#cq").value.trim().replace(/[,()%]/g," ");if(!t)return;
+    const {data:r}=await sb.from("students").select("id,admission_no,full_name,father_name,class_name").eq("archived",false).or(`full_name.ilike.%${t}%,admission_no.ilike.%${t}%,father_name.ilike.%${t}%`).limit(8);
+    cfound=Object.fromEntries((r||[]).map(s=>[s.id,s]));
+    $("#cr").innerHTML=r?.length?r.map(s=>`<div class="row"><span style="width:auto">${esc(s.admission_no)} · ${esc(s.full_name)} s/o ${esc(s.father_name)} · ${esc(s.class_name)}</span><button class="s" onclick="certForm('${s.id}')">Select</button></div>`).join(""):'<div class="empty">No student found</div>'};
+  $("#cfd").onclick=find;$("#cq").onkeydown=e=>{if(e.key==="Enter")find()};
+}
+function certForm(id){const s=cfound[id];
+  $("#cr").innerHTML=`<div class="card" style="margin-top:8px"><b>${esc(s.full_name)}</b> (${esc(s.admission_no)}) · ${esc(s.class_name)}<div class="top" style="margin-top:8px"><select id="ck"><option>Bonafide</option><option>Character</option>${role==="admin"?"<option>Leaving</option>":""}</select><input id="crm" maxlength="300" placeholder="Remarks (conduct / reason for leaving / purpose)"><button id="ci">Issue & print</button></div></div>`;
+  $("#ci").onclick=async e=>{const w=window.open("","_blank");e.target.disabled=true;
+    const {data,error}=await sb.rpc("issue_certificate",{p_sid:id,p_kind:$("#ck").value,p_remarks:$("#crm").value.trim()||null});e.target.disabled=false;
+    if(error){w&&w.close();return toast(error.message,false)}toast("Certificate issued");printCert(data,w);certs()};
+}
+async function printCert(id,w){w=w||window.open("","_blank");if(!w)return toast("Allow pop-ups to print",false);
+  const {data:c}=await sb.from("certificates").select("cert_no,kind,issued_on,remarks,student_id").eq("id",id).single();
+  const [{data:s},{data:set}]=await Promise.all([sb.from("students").select("admission_no,full_name,father_name,dob,gender,admission_date,class_name,section").eq("id",c.student_id).single(),sb.from("settings").select("school_name,academic_session").single()]);
+  const f=s.gender==="Female",rel=f?"daughter":"son",he=f?"She":"He",his=f?"her":"his",nm=esc(s.full_name),fa=esc(s.father_name),adm=esc(s.admission_no),rm=esc(c.remarks||""),
+    cl=esc(s.class_name+(s.section?" ("+s.section+")":""));
+  const title={Bonafide:"Bonafide Certificate",Character:"Character Certificate",Leaving:"School Leaving Certificate"}[c.kind];
+  const text={
+   Bonafide:`This is to certify that <b>${nm}</b>, ${rel} of <b>${fa}</b>, is a bona fide student of this school, enrolled in <b>Class ${cl}</b> (Admission No. ${adm}) in the academic session ${esc(set?.academic_session)}. Date of birth as per school record: ${esc(s.dob)}.${rm?` This certificate is issued for: ${rm}.`:""}`,
+   Character:`This is to certify that <b>${nm}</b>, ${rel} of <b>${fa}</b> (Admission No. ${adm}), is a student of this school and is studying in <b>Class ${cl}</b>. ${he} bears ${rm?"a character and conduct described as: <b>"+rm+"</b>":"a good moral character"}, to the best of our knowledge.`,
+   Leaving:`This is to certify that <b>${nm}</b>, ${rel} of <b>${fa}</b>, bearing Admission No. ${adm}, was a student of this school from ${esc(s.admission_date)} until ${esc(c.issued_on)} and last studied in <b>Class ${cl}</b>. Date of birth as per school record: ${esc(s.dob)}. ${he} is leaving the school${rm?" for the following reason: <b>"+rm+"</b>":""}. We wish ${his} every success.`}[c.kind];
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(c.cert_no)}</title><style>body{font:16px Georgia,serif;padding:12mm}.c{border:4px double #0b2447;padding:14mm;min-height:150mm}h1{margin:0;text-align:center;color:#0b2447;font-size:26px}h2{text-align:center;text-decoration:underline;margin:18px 0 24px}.m{display:flex;justify-content:space-between;font-size:14px}p{line-height:1.9;text-align:justify}.sg{display:flex;justify-content:space-between;margin-top:40mm}.sg div{border-top:1px solid #000;padding-top:4px;width:60mm;text-align:center;font-size:14px}</style>
+   <div class="c"><h1>${esc(set?.school_name)}</h1><h2>${title}</h2><div class="m"><span>Certificate No.: ${esc(c.cert_no)}</span><span>Date: ${esc(c.issued_on)}</span></div><p>${text}</p><div class="sg"><div>Office stamp</div><div>Principal's signature</div></div></div>`);
+  w.document.close();w.focus();setTimeout(()=>w.print(),400)}
 
 // ---------- Audit log (admin) ----------
 async function audit(){
