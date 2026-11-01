@@ -653,7 +653,6 @@ async function resSheet(print){
 
 
 
-
 // ---------- Audit log (admin) ----------
 async function audit(){
   const {data,error}=await sb.from("audit_log").select("at,action,detail").order("at",{ascending:false}).limit(100);
