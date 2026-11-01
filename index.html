@@ -463,6 +463,51 @@ async function printCert(id,w){w=w||window.open("","_blank");if(!w)return toast(
    <div class="c"><h1>${esc(set?.school_name)}</h1><h2>${title}</h2><div class="m"><span>Certificate No.: ${esc(c.cert_no)}</span><span>Date: ${esc(c.issued_on)}</span></div><p>${text}</p><div class="sg"><div>Office stamp</div><div>Principal's signature</div></div></div>`);
   w.document.close();w.focus();setTimeout(()=>w.print(),400)}
 
+async function printCert(id,w){w=w||window.open("","_blank");if(!w)return toast("Allow pop-ups to print",false);
+  const {data:c}=await sb.from("certificates").select("cert_no,kind,issued_on,remarks,student_id").eq("id",id).single();
+  const [{data:s},{data:set}]=await Promise.all([sb.from("students").select("admission_no,full_name,father_name,dob,gender,admission_date,class_name,section").eq("id",c.student_id).single(),sb.from("settings").select("school_name,academic_session").single()]);
+  const f=s.gender==="Female",rel=f?"daughter":"son",he=f?"She":"He",his=f?"her":"his",fa=esc(s.father_name),adm=esc(s.admission_no),rm=esc(c.remarks||""),
+    cl=esc(s.class_name+(s.section?" ("+s.section+")":"")),ses=esc(set?.academic_session);
+  const title={Bonafide:"Bonafide Certificate",Character:"Character Certificate",Leaving:"School Leaving Certificate"}[c.kind];
+  const text={
+   Bonafide:`${rel} of <b>${fa}</b>, is a bona fide student of this school, enrolled in <b>Class ${cl}</b> in the academic session ${ses}.${rm?` This certificate is issued for: <b>${rm}</b>.`:""}`,
+   Character:`${rel} of <b>${fa}</b>, is a student of this school, studying in <b>Class ${cl}</b>. ${he} bears ${rm?"a character and conduct described as: <b>"+rm+"</b>":"a good moral character"}, to the best of our knowledge.`,
+   Leaving:`${rel} of <b>${fa}</b>, was a student of this school from ${esc(s.admission_date)} until ${esc(c.issued_on)} and last studied in <b>Class ${cl}</b>. ${he} is leaving the school${rm?" for the following reason: <b>"+rm+"</b>":""}. We wish ${his} every success.`}[c.kind];
+  const det=[["Admission No.",adm],["Class",cl],["Date of Birth",esc(s.dob)],c.kind==="Leaving"?["Admitted On",esc(s.admission_date)]:["Session",ses]];
+  const crest=`<svg viewBox="0 0 100 100"><circle cx="50" cy="50" r="46" fill="#0b2447" stroke="#b8902f" stroke-width="4"/><circle cx="50" cy="50" r="36" fill="none" stroke="#f3d98b" stroke-width="1.5"/><polygon points="50,20 57,42 80,42 62,56 69,78 50,64 31,78 38,56 20,42 43,42" fill="#f3d98b"/></svg>`;
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(c.cert_no)}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,500;0,700;1,500&family=Great+Vibes&family=Playfair+Display:wght@600;800&display=swap" rel="stylesheet">
+  <style>
+  @page{size:A4 landscape;margin:0}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}body{margin:0}
+  .pg{width:297mm;height:210mm;position:relative;overflow:hidden;background:linear-gradient(135deg,#fffdf7,#f9f2de)}
+  .o{position:absolute;inset:8mm;border:3mm solid #0b2447}.i{position:absolute;inset:13mm;border:.5mm solid #b8902f}
+  .k{position:absolute;width:16mm;height:16mm;border:1mm solid #b8902f}.tl{top:15mm;left:15mm;border-right:0;border-bottom:0}.tr{top:15mm;right:15mm;border-left:0;border-bottom:0}.bl{bottom:15mm;left:15mm;border-right:0;border-top:0}.br{bottom:15mm;right:15mm;border-left:0;border-top:0}
+  .wm{position:absolute;left:50%;top:50%;width:120mm;height:120mm;transform:translate(-50%,-50%);opacity:.05}
+  .ct{position:absolute;inset:19mm 24mm;text-align:center;font-family:'Cormorant Garamond',Georgia,serif;color:#1c2a44;display:flex;flex-direction:column;align-items:center}
+  .cr{width:16mm;height:16mm}.sch{font:800 8.5mm 'Playfair Display',Georgia,serif;color:#0b2447;margin:2mm 0 0}
+  .ttl{margin-top:4mm;padding:2mm 16mm;background:linear-gradient(90deg,#0b2447,#19376d,#0b2447);color:#f3d98b;font:600 5.2mm 'Playfair Display',Georgia,serif;letter-spacing:1.2mm;text-transform:uppercase;clip-path:polygon(4% 0,96% 0,100% 50%,96% 100%,4% 100%,0 50%)}
+  .sm{font-style:italic;font-size:5mm;margin-top:6mm}.nm{font:12mm 'Great Vibes','Brush Script MT',cursive;color:#0b2447;padding:0 16mm;border-bottom:.6mm solid;border-image:linear-gradient(90deg,transparent,#b8902f,transparent) 1}
+  .tx{font-size:5.2mm;line-height:1.55;max-width:205mm;margin-top:5mm;font-weight:500}
+  .dt{display:flex;gap:6mm;margin-top:6mm}.dt div{border:.3mm solid #b8902f;border-radius:2mm;padding:1.5mm 6mm;background:rgba(255,255,255,.7);min-width:38mm}
+  .dt small{display:block;font:600 2.8mm Arial,sans-serif;letter-spacing:.4mm;color:#8a6a1a;text-transform:uppercase}.dt b{font-size:4.6mm;color:#0b2447}
+  .ft{position:absolute;bottom:2mm;left:0;right:0;display:flex;justify-content:space-between;align-items:flex-end}.ft>div{width:62mm}
+  .no{font:3.4mm Arial,sans-serif;color:#555;text-align:left}.no b{font-size:4.2mm;color:#0b2447}
+  .seal{width:26mm!important;height:26mm;border-radius:50%;border:.8mm double #b8902f;display:grid;place-items:center;font:600 2.6mm Arial,sans-serif;color:#b8902f;text-transform:uppercase;letter-spacing:.3mm}
+  .sg{border-top:.4mm solid #0b2447;padding-top:1.5mm;font-size:4.2mm}
+  </style>
+  <div class="pg"><div class="o"></div><div class="i"></div><i class="k tl"></i><i class="k tr"></i><i class="k bl"></i><i class="k br"></i><div class="wm">${crest}</div>
+  <div class="ct"><div class="cr">${crest}</div><div class="sch">${esc(set?.school_name)}</div><div class="ttl">${title}</div>
+  <div class="sm">This is to certify that</div><div class="nm">${esc(s.full_name)}</div><div class="tx">${text}</div>
+  <div class="dt">${det.map(([a,b])=>`<div><small>${a}</small><b>${b}</b></div>`).join("")}</div>
+  <div class="ft"><div class="no">Certificate No.<br><b>${esc(c.cert_no)}</b><br>Issued: ${esc(c.issued_on)}</div><div class="seal">Official<br>Seal</div><div class="sg">Principal's Signature</div></div></div></div>`);
+  w.document.close();w.focus();
+  await new Promise(r=>{if(w.document.readyState==="complete")r();else w.addEventListener("load",r);setTimeout(r,3500)});
+  await Promise.race([w.document.fonts.ready,new Promise(r=>setTimeout(r,1500))]);
+  w.print()}
+
+
+
+
 // ---------- Audit log (admin) ----------
 async function audit(){
   const {data,error}=await sb.from("audit_log").select("at,action,detail").order("at",{ascending:false}).limit(100);
