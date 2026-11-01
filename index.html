@@ -54,7 +54,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 8px;
 
 <div class="app" id="app" hidden>
 <aside id="side"><h1>🏫 The South Punjab School<br><small style="font-weight:400;color:#9db8d9">Chowk Azam, Layyah</small></h1>
-  <a data-v="dash" class="on">📊 Dashboard</a><a data-v="list">👥 Students</a><a <a data-v="quality" id="navQ">🔎 Data Quality</a><a data-v="fees" id="navFee">💰 Fees</a><a data-v="add" id="navAdd">➕ Register Student</a><a data-v="audit" id="navAudit">🧾 Audit Log</a><a data-v="users" id="navUsers">👤 Users</a><a data-v="settings" id="navSet">⚙ Settings</a><a data-v="classes" id="navCls">🏷 Classes</a><a data-v="promote" id="navPro">⬆ Promotion</a><a data-v="backup" id="navBk">💾 Backup</a>
+  <a data-v="dash" class="on">📊 Dashboard</a><a data-v="list">👥 Students</a><a <a data-v="quality" id="navQ">🔎 Data Quality</a><a data-v="fees" id="navFee">💰 Fees</a><a data-v="attendance" id="navAtt">✅ Attendance</a><a data-v="add" id="navAdd">➕ Register Student</a><a data-v="audit" id="navAudit">🧾 Audit Log</a><a data-v="users" id="navUsers">👤 Users</a><a data-v="settings" id="navSet">⚙ Settings</a><a data-v="classes" id="navCls">🏷 Classes</a><a data-v="promote" id="navPro">⬆ Promotion</a><a data-v="backup" id="navBk">💾 Backup</a>
   <a id="theme">🌓 Theme</a><a id="out">🚪 Logout</a></aside>
 <main><div class="top"><button class="s menu" id="mn">☰</button>
   <input id="gs" placeholder="Search name, admission no. or father's name…"><span class="tag" id="who"></span></div>
@@ -80,8 +80,10 @@ async function boot(){
   const {data:c} = await sb.from("classes").select("name").eq("active",true).order("sort"); classes = (c||[]).map(x=>x.name);
   $("#login").hidden=true;$("#app").hidden=false;$("#who").textContent=(p?.full_name||session.user.email)+" · "+role;
  $("#navAdd").hidden=$("#navFee").hidden=!canEdit();$("#navAudit").hidden=$("#navUsers").hidden=$("#navSet").hidden=$("#navCls").hidden=$("#navPro").hidden=$("#navBk").hidden=role!=="admin";
+ $("#navAtt").hidden=!canEdit();
   go("dash");
 }
+
 $("#lgBtn").onclick=async e=>{e.target.disabled=true;
   const {error}=await sb.auth.signInWithPassword({email:$("#em").value.trim(),password:$("#pw").value});
   e.target.disabled=false;error?toast("Login failed: "+error.message,false):boot()};
@@ -96,7 +98,7 @@ $("#gs").addEventListener("keydown",e=>{if(e.key==="Enter"){st.q=e.target.value.
 function go(v,arg){
   document.querySelectorAll("aside a[data-v]").forEach(a=>a.classList.toggle("on",a.dataset.v===v));
   $("#side").classList.remove("open");
-  ({dash,list,add:()=>form(),edit:()=>form(arg),audit,users,settings,classes:classesView,promote,backup,quality,fees})[v](arg);
+  ({dash,list,add:()=>form(),edit:()=>form(arg),audit,users,settings,classes:classesView,promote,backup,quality,fees,attendance})[v](arg);
 }
 
 // ---------- Dashboard (real counts from DB) ----------
@@ -386,6 +388,49 @@ async function printReceipt(id,w){w=w||window.open("","_blank");if(!w)return toa
    <table><tr><td>Receipt no.</td><td>${esc(p.receipt_no)}</td></tr><tr><td>Date</td><td>${esc(p.paid_on)}</td></tr><tr><td>Student</td><td>${esc(s.full_name)} (${esc(s.admission_no)})</td></tr><tr><td>Father</td><td>${esc(s.father_name)}</td></tr><tr><td>Class</td><td>${esc(s.class_name)} ${esc(s.section)}</td></tr>
    <tr><td>Amount received</td><td><b>${rs(p.amount)}</b></td></tr><tr><td>Note</td><td>${esc(p.note)}</td></tr><tr><td>Remaining balance</td><td>${rs(b?.balance)}</td></tr></table><p style="margin-top:20mm">Received by (signature): ____________</p></div>`);
   w.document.close();w.focus();setTimeout(()=>w.print(),400)}
+  // ---------- Attendance ----------
+const todayStr=()=>{const d=new Date();return new Date(d.getTime()-d.getTimezoneOffset()*6e4).toISOString().slice(0,10)};
+async function attendance(){
+  await refreshClasses();const t=todayStr();
+  $("#view").innerHTML=`<div class="card"><div class="top"><select id="ac">${classes.map(c=>`<option>${esc(c)}</option>`).join("")}</select><input type="date" id="ad" value="${t}" max="${t}" style="flex:0"><button id="al">Load class</button><button class="s" id="ar">Monthly report</button></div><div id="ab"></div></div>`;
+  $("#al").onclick=attLoad;$("#ar").onclick=attReport;
+}
+async function attLoad(){
+  const c=$("#ac").value,d=$("#ad").value;if(!d)return toast("Pick a date",false);
+  const [{data:st,error},{data:old}]=await Promise.all([
+    sb.from("students").select("id,admission_no,full_name,father_name,father_phone").eq("class_name",c).eq("archived",false).eq("status","Active").order("full_name").limit(500),
+    sb.from("attendance").select("student_id,status").eq("class_name",c).eq("att_date",d).limit(500)]);
+  if(error)return toast(error.message,false);
+  if(!st.length)return $("#ab").innerHTML='<div class="empty">No active students in this class.</div>';
+  const cur=Object.fromEntries((old||[]).map(x=>[x.student_id,x.status])),map=Object.fromEntries(st.map(s=>[s.id,s]));
+  $("#ab").innerHTML=`<div class="top" style="margin-top:12px"><button class="s" id="ap">Mark all present</button><span class="tag" id="asum"></span></div>
+   <div class="tw"><table>${st.map(s=>`<tr data-id="${s.id}"><td>${esc(s.admission_no)}</td><td>${esc(s.full_name)}<br><small style="color:var(--mut)">s/o ${esc(s.father_name)}</small></td>
+   <td style="white-space:nowrap">${[["P","Present"],["A","Absent"],["L","Leave"]].map(([k,l])=>`<label style="margin-right:10px"><input type="radio" name="r${s.id}" value="${k}" ${cur[s.id]===k?"checked":""}> ${l}</label>`).join("")}</td><td class="wa"></td></tr>`).join("")}</table></div>
+   <button id="asv" style="margin-top:10px">Save attendance</button>`;
+  const refresh=()=>{let p=0,a=0,l=0;document.querySelectorAll("#ab tr[data-id]").forEach(tr=>{const v=tr.querySelector("input:checked")?.value,s=map[tr.dataset.id];
+      if(v==="P")p++;if(v==="A")a++;if(v==="L")l++;
+      tr.querySelector(".wa").innerHTML=v==="A"&&s.father_phone?`<a target="_blank" rel="noopener" href="https://wa.me/92${s.father_phone.slice(1)}?text=${encodeURIComponent(`Assalam o Alaikum. ${s.full_name} aaj (${d}) school se ghair hazir hai. - The South Punjab School`)}">WhatsApp</a>`:""});
+    $("#asum").textContent=`P ${p} · A ${a} · L ${l} · unmarked ${st.length-p-a-l}`};
+  $("#ab").onchange=refresh;refresh();
+  $("#ap").onclick=()=>{document.querySelectorAll('#ab input[value="P"]').forEach(i=>i.checked=true);refresh()};
+  $("#asv").onclick=async e=>{
+    const rows=[...document.querySelectorAll("#ab tr[data-id]")].map(tr=>({student_id:tr.dataset.id,att_date:d,class_name:c,status:tr.querySelector("input:checked")?.value})).filter(r=>r.status);
+    if(!rows.length)return toast("Mark at least one student",false);
+    const un=st.length-rows.length;if(un&&!confirm(un+" students are not marked and will be skipped. Save anyway?"))return;
+    e.target.disabled=true;const {error}=await sb.from("attendance").upsert(rows,{onConflict:"student_id,att_date"});e.target.disabled=false;
+    error?toast(error.message,false):toast("Attendance saved ("+rows.length+" students)")};
+}
+async function attReport(){
+  const c=$("#ac").value,m=($("#ad").value||"").slice(0,7);if(!m)return toast("Pick a date in the month you want",false);
+  const [{data:st},{data:r,error}]=await Promise.all([
+    sb.from("students").select("id,admission_no,full_name").eq("class_name",c).eq("archived",false).eq("status","Active").order("full_name").limit(500),
+    sb.rpc("attendance_month",{cls:c,m})]);
+  if(error)return toast(error.message,false);
+  const n=Object.fromEntries((r||[]).map(x=>[x.sid,x])),days=Math.max(0,...(r||[]).map(x=>x.days));
+  $("#ab").innerHTML=`<h3 style="margin-top:14px">${esc(c)} · ${m} · ${days} school days marked</h3><div class="tw"><table><tr><th>Adm</th><th>Name</th><th>Present</th><th>Absent</th><th>Leave</th><th>%</th></tr>
+   ${st.map(s=>{const x=n[s.id]||{present:0,absent:0,leaves:0},t=x.present+x.absent+x.leaves;return `<tr><td>${esc(s.admission_no)}</td><td>${esc(s.full_name)}</td><td>${x.present}</td><td>${x.absent}</td><td>${x.leaves}</td><td>${t?Math.round(x.present/t*100)+"%":"-"}</td></tr>`}).join("")}</table></div>`;
+}
+
 // ---------- Audit log (admin) ----------
 async function audit(){
   const {data,error}=await sb.from("audit_log").select("at,action,detail").order("at",{ascending:false}).limit(100);
