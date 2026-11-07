@@ -925,6 +925,54 @@ async function profilesAdmin(){
     let ok=0,bad=0;for(const i of ids){if(stop)break;(await genProfile(i,{quiet:true}))?ok++:bad++;$("#pst").textContent=`Created ${ok} · failed ${bad} · remaining ${ids.length-ok-bad}`}
     e.target.disabled=false;$("#pstop").hidden=true;toast(stop?"Stopped. Run again to continue":`Finished: ${ok} created, ${bad} failed`,!bad);profilesAdmin()};
 }
+async function savedPdf(id,mode="download"){
+  const w=mode==="open"?window.open("","_blank"):null;
+  let {data,error}=await sb.storage.from(PDF_BUCKET).download(id+".pdf");
+  if(error||!data){toast("No saved PDF yet, creating it…");const r=await genProfile(id,{noBanner:true});if(!r){w&&w.close();return}data=r.blob}
+  const url=URL.createObjectURL(data);
+  if(mode==="open"){if(w)w.location=url;else window.open(url,"_blank");return}
+  if(mode==="print"){printPdf(data);return}
+  const {data:s}=await sb.rpc("student_full",{sid:id}),a=document.createElement("a");a.href=url;
+  a.download=((s?.admission_no||id)+"-"+(s?.full_name||"")).replace(/[^\w.\- ]+/g,"_")+".pdf";a.click();
+}
+function pdfBanner(blob,P){
+  document.getElementById("pdfb")?.remove();const url=URL.createObjectURL(blob),name=(P.s.admission_no+"-"+P.s.full_name).replace(/[^\w.\- ]+/g,"_")+".pdf",d=document.createElement("div");d.id="pdfb";
+  d.style.cssText="position:fixed;right:14px;bottom:64px;z-index:20;background:var(--card);color:var(--tx);border:1px solid var(--bd);border-left:4px solid var(--ok);border-radius:10px;padding:12px 14px;box-shadow:0 6px 24px rgba(0,0,0,.18);max-width:340px";
+  d.innerHTML=`<b>Profile PDF saved</b><div style="color:var(--mut);margin:2px 0 8px">${esc(P.s.full_name)} · ${esc(P.s.admission_no)}</div><div class="top" style="margin:0"><a href="${url}" download="${esc(name)}" style="padding:9px 12px;border-radius:8px;text-decoration:none;background:var(--blue);color:#fff">⬇ Download</a><button class="s" id="pbp">🖨 Print</button><button class="s" id="pbc">✕</button></div>`;
+  document.body.appendChild(d);$("#pbp").onclick=()=>printPdf(blob);$("#pbc").onclick=()=>d.remove();setTimeout(()=>d.remove(),45000);
+}
+async function genProfile(id,o={}){
+  try{
+    try{await Promise.race([document.fonts.load("40px 'Noto Nastaliq Urdu'","ع"),new Promise(r=>setTimeout(r,2500))])}catch{}
+    const P=await loadProfile(id),blob=(await buildPdf(P)).output("blob"),path=id+".pdf";
+    const up=await sb.storage.from(PDF_BUCKET).upload(path,blob,{upsert:true,contentType:"application/pdf"});if(up.error)throw up.error;
+    const r=await sb.from("student_pdf").upsert({student_id:id,path,generated_at:new Date().toISOString(),size_bytes:blob.size},{onConflict:"student_id"});if(r.error)throw r.error;
+    if(!o.quiet){toast("Profile PDF saved");if(!o.noBanner)pdfBanner(blob,P)}return {blob,P};
+  }catch(e){if(!o.quiet)toast("Profile PDF failed: "+(e.message||e),false);return null}
+}
+async function profileView(id){
+  $("#view").innerHTML='<div class="empty">Loading profile…</div>';
+  let P;try{P=await loadProfile(id)}catch(e){return toast(e.message,false)}
+  const {s,b,pf,pays,a,ex,ce,hist,set,stored}=P,tot=a.P+a.A+a.L,cur=pf.find(x=>x.session===set.academic_session);
+  let u="";if(s.photo_path){const r=await sb.storage.from("student-photos").createSignedUrl(s.photo_path,600);u=r.data?.signedUrl||""}
+  const T=(h,rows)=>rows.length?`<div class="tw"><table><tr>${h.map(x=>`<th>${x}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table></div>`:'<div class="empty">None</div>';
+  const kv=(l)=>`<div class="form" style="margin-top:8px">${l.map(([k,v])=>`<label>${k}<b style="color:var(--tx);font-size:14px">${esc(v)||"-"}</b></label>`).join("")}</div>`;
+  $("#view").innerHTML=`<div class="card"><div class="top"><button class="s" onclick="go('list')">← Back</button><button id="pdl">⬇ Download PDF</button><button class="s" id="ppr">🖨 Print</button>${stored?'<button class="s" id="pvw">👁 View saved copy</button>':""}
+   <span class="tag">${stored?"Saved copy: "+new Date(stored.generated_at).toLocaleString():"No saved copy yet"}</span></div>
+   <div style="display:flex;gap:16px;flex-wrap:wrap">${u?`<img src="${u}" alt="" style="width:110px;height:140px;object-fit:cover;border-radius:8px">`:'<div class="empty" style="width:110px;border:1px dashed var(--bd);border-radius:8px">No photo</div>'}
+   <div><h2 style="margin:0">${esc(s.full_name)}</h2>${s.full_name_ur?`<div dir="rtl" style="font-size:20px;font-family:'Noto Nastaliq Urdu',Tahoma,serif;text-align:left">${esc(s.full_name_ur)}</div>`:""}
+   <div style="margin-top:6px">${esc(s.admission_no)} · ${esc(s.class_name)} ${esc(s.section)} · <span class="tag">${esc(s.status)}</span> <span class="tag">${esc(s.workflow)}</span></div><div style="color:var(--mut)">S/o ${esc(s.father_name)} · ${esc(s.father_phone)}</div></div></div></div>
+   <div class="grid" style="margin-top:12px"><div class="card stat"><b style="color:var(${b.balance>0?"--err":"--ok"})">${rs(b.balance)}</b><span>Fee balance</span></div>
+   <div class="card stat"><b style="font-size:18px;color:var(${cur&&cur.status==="Submitted"?"--ok":"--err"})">${cur?esc(cur.status):"-"}</b><span>Paper fund ${esc(set.academic_session)}</span></div>
+   <div class="card stat"><b>${tot?Math.round(a.P/tot*100)+"%":"-"}</b><span>Attendance (${tot} days)</span></div><div class="card stat"><b>${ce.length}</b><span>Certificates</span></div></div>
+   <div class="card" style="margin-top:12px"><h3>Personal and parents</h3>${kv([["Date of birth",s.dob],["Gender",s.gender],["Admission date",s.admission_date],["Previous school",s.prev_school],["Previous class",s.prev_class],["Father's mobile",s.father_phone],["Father's CNIC",s.father_cnic],["Mother's name",s.mother_name],["Mother's contact",s.mother_phone],["Guardian",s.guardian_name],["Relationship",s.guardian_relation],["Emergency contact",s.emergency_phone],["Address",[s.address,s.city].filter(Boolean).join(", ")]])}</div>
+   <div class="card" style="margin-top:12px"><h3>Recent receipts</h3>${T(["Receipt","Date","Amount"],pays.map(x=>[x.receipt_no+(x.voided?" (void)":""),x.paid_on,rs(x.amount)]))}</div>
+   <div class="card" style="margin-top:12px"><h3>Results</h3>${T(["Exam","Marks","%"],Object.entries(ex).map(([n,e])=>[n,e.got+" / "+e.max,e.max?(e.got/e.max*100).toFixed(1)+"%":"-"]))}</div>
+   <div class="card" style="margin-top:12px"><h3>Certificates</h3>${T(["No.","Type","Date"],ce.map(x=>[x.cert_no,x.kind,x.issued_on]))}<h3 style="margin-top:14px">Class history</h3>${T(["From","To","Session","Date"],hist.map(x=>[x.from_class,x.to_class,x.session,String(x.at||"").slice(0,10)]))}</div>`;
+  const run=async f=>{const r=await genProfile(id,{noBanner:true});if(r)f(r.blob);return r};
+  $("#pdl").onclick=async e=>{e.target.disabled=true;const r=await run(bl=>{const l=document.createElement("a");l.href=URL.createObjectURL(bl);l.download=(s.admission_no+"-"+s.full_name).replace(/[^\w.\- ]+/g,"_")+".pdf";l.click()});e.target.disabled=false;if(r)profileView(id)};
+  $("#ppr").onclick=async e=>{e.target.disabled=true;await run(printPdf);e.target.disabled=false};if($("#pvw"))$("#pvw").onclick=()=>savedPdf(id,"open")
+}
 
 
 
