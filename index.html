@@ -342,7 +342,7 @@ async function quality(){
 // ---------- Sections & review ----------
 async function editSec(id){const c=clsCache.find(x=>x.id===id),v=prompt("Sections for "+c.name+" (comma separated, e.g. A,B,C). Leave empty for none.",c.sections||"");if(v===null)return;
   const {error}=await sb.from("classes").update({sections:v.split(",").map(x=>x.trim()).filter(Boolean).join(",")}).eq("id",id);error?toast(error.message,false):(toast("Sections saved"),classesView())}
-async function review(id,d){if(!confirm((d==="Approved"?"Approve":"Reject")+" this registration?"))return;
+async function review(id,d){if(d!=="Approved"&&!confirm("Reject this registration?"))return;
   const {error}=await sb.rpc("review_student",{sid:id,decision:d});error?toast(error.message,false):(toast(d),list())}
   // ---------- Fees ----------
 const rs=n=>"Rs "+Number(n||0).toLocaleString("en-PK");
@@ -650,6 +650,45 @@ async function resSheet(print){
     await new Promise(r=>{if(w.document.readyState==="complete")r();else w.addEventListener("load",r);setTimeout(r,3500)});w.print();
   }catch(err){w&&w.close();toast(err.message||"Could not load results",false)}
 }
+const numWords=n=>{n=Math.round(Number(n)||0);if(!n)return"Zero";
+  const o=["","One","Two","Three","Four","Five","Six","Seven","Eight","Nine","Ten","Eleven","Twelve","Thirteen","Fourteen","Fifteen","Sixteen","Seventeen","Eighteen","Nineteen"],t=["","","Twenty","Thirty","Forty","Fifty","Sixty","Seventy","Eighty","Ninety"];
+  const two=x=>x<20?o[x]:t[Math.floor(x/10)]+(x%10?" "+o[x%10]:""),three=x=>(x>=100?o[Math.floor(x/100)]+" Hundred"+(x%100?" ":""):"")+(x%100?two(x%100):"");
+  let s="";for(const [v,l] of [[10000000,"Crore"],[100000,"Lakh"],[1000,"Thousand"]])if(n>=v){s+=(s?" ":"")+three(Math.floor(n/v))+" "+l;n%=v}
+  return n?s+(s?" ":"")+three(n):s};
+async function printReceipt(id,w){w=w||window.open("","_blank");if(!w)return toast("Allow pop-ups to print",false);
+  const {data:p}=await sb.from("fee_payments").select("receipt_no,amount,paid_on,note,voided,student_id").eq("id",id).single();
+  const [{data:s},{data:set},{data:b}]=await Promise.all([sb.from("students").select("admission_no,full_name,father_name,class_name,section,full_name_ur,father_name_ur").eq("id",p.student_id).single(),
+    sb.from("settings").select("school_name,academic_session").single(),sb.from("fee_balances").select("balance").eq("student_id",p.student_id).single()]);
+  const bal=Number(b?.balance||0),balTxt=bal>0?`<span class="due">Remaining dues: <b>${rs(bal)}</b></span>`:bal<0?`<span class="ok">Advance credit: <b>${rs(-bal)}</b></span>`:`<span class="ok">Account fully paid</span>`;
+  const copy=lbl=>`<div class="rc"><div class="hd"><div><h1>${esc(set?.school_name)}</h1><small>Fee Receipt${set?.academic_session?" · Session "+esc(set.academic_session):""}</small></div><div class="no">Receipt No.<b>${esc(p.receipt_no)}</b>${esc(p.paid_on)}</div></div>
+   <div class="cp">${lbl}</div><div class="bd"><div class="g">
+   <div><small>Student</small><b>${esc(s.full_name)}</b>${urSpan(s.full_name_ur)}</div><div><small>Admission No.</small><b>${esc(s.admission_no)}</b></div>
+   <div><small>Father's name</small><b>${esc(s.father_name)}</b>${urSpan(s.father_name_ur)}</div><div><small>Class</small><b>${esc(s.class_name)} ${esc(s.section)}</b></div>
+   <div style="grid-column:1/-1"><small>Received for</small><b>${esc(p.note)||"School fee"}</b></div></div>
+   <div class="amt"><div><small style="font-size:8.5px;letter-spacing:1px;text-transform:uppercase;color:#7a8aa5">Amount received</small><div class="n">${rs(p.amount)}</div></div><div class="w">Rupees ${numWords(p.amount)} only</div></div>
+   <div class="bal">${balTxt}</div></div><div class="paid${p.voided?" v":""}">${p.voided?"VOID":"PAID"}</div>
+   <div class="sg"><div>Received by</div><div>Parent / Guardian</div></div><div class="ft">Computer generated receipt · Please keep it safe for your record</div></div>`;
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(p.receipt_no)}</title>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@500&family=Playfair+Display:wght@700&display=swap" rel="stylesheet"><style>
+  @page{size:A4;margin:8mm}*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}body{margin:0;font:12px 'Segoe UI',Arial,sans-serif;color:#1c2a44}
+  .rc{position:relative;border:1.5px solid #0b2447;border-radius:3mm;overflow:hidden;height:132mm;background:#fff}
+  .hd{background:linear-gradient(90deg,#0b2447,#19376d);color:#fff;padding:5mm 7mm;display:flex;justify-content:space-between;align-items:center}
+  .hd h1{margin:0;font:700 17px 'Playfair Display',Georgia,serif}.hd small{color:#f3d98b;display:block;margin-top:1mm;letter-spacing:1.5px;text-transform:uppercase;font-size:9px}
+  .no{text-align:right;font-size:10px;color:#cfe0f5}.no b{display:block;font-size:15px;color:#f3d98b}
+  .cp{background:#f3d98b;color:#0b2447;text-align:center;font:700 9px Arial;letter-spacing:2px;padding:1mm;text-transform:uppercase}
+  .bd{padding:5mm 7mm}.g{display:grid;grid-template-columns:1fr 1fr;gap:3mm 8mm}.g div{border-bottom:1px dotted #b8c4d6;padding-bottom:1.2mm}
+  .g small{display:block;font-size:8.5px;color:#7a8aa5;letter-spacing:1px;text-transform:uppercase}.g b{font-size:13px}
+  .amt{display:flex;align-items:center;justify-content:space-between;gap:6mm;margin:5mm 0 3mm;background:#eef3fa;border-left:1.5mm solid #b8902f;border-radius:2mm;padding:3.5mm 5mm}
+  .amt .n{font:800 22px Georgia,serif;color:#0b2447}.amt .w{font-size:10.5px;color:#445;max-width:75mm;text-align:right}
+  .bal{font-size:11px;margin-top:2mm}.ok{color:#15803d}.due{color:#b91c1c}
+  .sg{position:absolute;left:7mm;right:7mm;bottom:8mm;display:flex;justify-content:space-between}.sg div{width:55mm;border-top:1px solid #0b2447;padding-top:1mm;text-align:center;font-size:10px}
+  .ft{position:absolute;bottom:2mm;left:0;right:0;text-align:center;font-size:8px;color:#8a97ad}
+  .paid{position:absolute;right:12mm;top:62mm;transform:rotate(-12deg);border:1.2mm double #15803d;color:#15803d;padding:1mm 5mm;font:800 20px Arial;letter-spacing:3px;opacity:.5;border-radius:2mm}.paid.v{border-color:#b91c1c;color:#b91c1c}
+  .cut{border-top:1px dashed #8a97ad;margin:5mm 0;height:0;position:relative}.cut span{position:absolute;left:50%;top:-6px;transform:translateX(-50%);background:#fff;padding:0 3mm;font-size:9px;color:#8a97ad}
+  .ur{display:block;direction:rtl;font:13px 'Noto Nastaliq Urdu','Jameel Noori Nastaleeq',Tahoma,serif;line-height:1.9}
+  </style>${copy("Parent copy")}<div class="cut"><span>✂ cut here</span></div>${copy("Office copy")}`);
+  w.document.close();w.focus();
+  await new Promise(r=>{if(w.document.readyState==="complete")r();else w.addEventListener("load",r);setTimeout(r,3500)});w.print()}
 
 
 
