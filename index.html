@@ -809,6 +809,117 @@ async function printReceipt(id,w){w=w||window.open("","_blank");if(!w)return toa
   </style>${copy("Parent copy")}<div class="cut"><span>✂ cut here</span></div>${copy("Office copy")}`);
   w.document.close();w.focus();
   await new Promise(r=>{if(w.document.readyState==="complete")r();else w.addEventListener("load",r);setTimeout(r,3500)});w.print()}
+// ---------- Student profile (page + PDF stored on the site) ----------
+const PDF_BUCKET="student-profiles";
+async function loadProfile(id){
+  const [{data:s,error},{data:set},{data:b},{data:pf},{data:pays},{data:att},{data:mk},{data:ce},{data:hist},{data:stored}]=await Promise.all([
+    sb.rpc("student_full",{sid:id}),
+    sb.from("settings").select("school_name,academic_session").single(),
+    sb.from("fee_balances").select("charged,paid,balance").eq("student_id",id).single(),
+    sb.from("paper_fund").select("session,amount,status,paid_on").eq("student_id",id).order("session",{ascending:false}),
+    sb.from("fee_payments").select("receipt_no,amount,paid_on,voided").eq("student_id",id).order("created_at",{ascending:false}).limit(5),
+    sb.from("attendance").select("status").eq("student_id",id).limit(1000),
+    sb.from("marks").select("obtained,exams(name),subjects(max_marks)").eq("student_id",id).limit(1000),
+    sb.from("certificates").select("cert_no,kind,issued_on").eq("student_id",id).order("created_at",{ascending:false}),
+    sb.from("class_history").select("from_class,to_class,session,at").eq("student_id",id).order("at",{ascending:false}),
+    sb.from("student_pdf").select("generated_at").eq("student_id",id).maybeSingle()]);
+  if(error||!s)throw new Error("Could not load the student record");
+  const a={P:0,A:0,L:0};(att||[]).forEach(x=>{if(a[x.status]!==undefined)a[x.status]++});
+  const ex={};(mk||[]).forEach(m=>{if(m.obtained==null)return;const e=ex[m.exams?.name||"Exam"]??={got:0,max:0};e.got+=Number(m.obtained);e.max+=Number(m.subjects?.max_marks||0)});
+  return {s,set:set||{},b:b||{charged:0,paid:0,balance:0},pf:pf||[],pays:pays||[],a,ex,ce:ce||[],hist:hist||[],stored};
+}
+async function pdfPhoto(path){if(!path)return null;try{const {data,error}=await sb.storage.from("student-photos").download(path);if(error||!data)return null;
+  const bm=await createImageBitmap(data),k=Math.min(1,320/Math.max(bm.width,bm.height)),c=document.createElement("canvas");c.width=Math.round(bm.width*k);c.height=Math.round(bm.height*k);
+  c.getContext("2d").drawImage(bm,0,0,c.width,c.height);return {url:c.toDataURL("image/jpeg",0.82),w:c.width,h:c.height}}catch{return null}}
+function pdfUrdu(t,px=44){if(!t)return null;const c=document.createElement("canvas"),x=c.getContext("2d"),f=`${px}px 'Noto Nastaliq Urdu','Jameel Noori Nastaleeq','Segoe UI',Tahoma,serif`;
+  x.font=f;const w=Math.ceil(x.measureText(t).width)+10,h=Math.ceil(px*2.1);c.width=w;c.height=h;x.font=f;x.direction="rtl";x.textAlign="right";x.textBaseline="middle";x.fillStyle="#0b2447";x.fillText(t,w-5,h/2);
+  return {url:c.toDataURL("image/png"),w,h}}
+async function buildPdf(P){
+  const {jsPDF}=window.jspdf,d=new jsPDF({unit:"mm",format:"a4"}),W=210,M=14,CW=W-2*M,NAVY=[11,36,71],GOLD=[243,217,139],GREY=[110,122,145],INK=[30,40,60],{s}=P;let y=0;
+  const need=h=>{if(y+h>282){d.addPage();y=M}};
+  const band=t=>{need(16);d.setFillColor(...NAVY);d.rect(M,y,CW,7,"F");d.setTextColor(255,255,255);d.setFont("helvetica","bold");d.setFontSize(10);d.text(t,M+3,y+4.9);y+=10.5};
+  const kv=(pairs,cols=3)=>{const cw=CW/cols;for(let i=0;i<pairs.length;i+=cols){const row=pairs.slice(i,i+cols).map(([l,v])=>({l,t:d.splitTextToSize(String(v||"-"),cw-4)}));
+    const h=6+Math.max(...row.map(c=>c.t.length))*4.3;need(h);row.forEach((c,j)=>{const x=M+j*cw;d.setFont("helvetica","normal");d.setFontSize(7.5);d.setTextColor(...GREY);d.text(c.l.toUpperCase(),x,y+3);
+      d.setFont("helvetica","bold");d.setFontSize(10);d.setTextColor(...INK);d.text(c.t,x,y+7.6)});y+=h+1}y+=1};
+  const table=(head,rows,w)=>{need(14+Math.min(rows.length,8)*6.2);d.setFillColor(238,243,250);d.rect(M,y,CW,6,"F");let x=M+2;d.setFont("helvetica","bold");d.setFontSize(8.5);d.setTextColor(...NAVY);head.forEach((h,i)=>{d.text(h,x,y+4.2);x+=w[i]});y+=7;
+    d.setFont("helvetica","normal");d.setFontSize(9);d.setTextColor(...INK);
+    if(!rows.length){d.setTextColor(...GREY);d.text("None",M+2,y+3.5);y+=7;return}
+    rows.forEach(r=>{need(7);x=M+2;r.forEach((c,i)=>{d.text(String(c??"-"),x,y+3.6);x+=w[i]});d.setDrawColor(220,226,236);d.line(M,y+5.2,M+CW,y+5.2);y+=6.2});y+=3};
+  const money=n=>"Rs "+Number(n||0).toLocaleString("en-PK");
+  // header
+  d.setFillColor(...NAVY);d.rect(0,0,W,30,"F");d.setTextColor(255,255,255);d.setFont("helvetica","bold");d.setFontSize(16);d.text(d.splitTextToSize(P.set.school_name||"School",CW-52),M,12);
+  d.setTextColor(...GOLD);d.setFontSize(9);d.text("STUDENT PROFILE  |  SESSION "+(P.set.academic_session||""),M,23);
+  d.setTextColor(207,224,245);d.setFont("helvetica","normal");d.setFontSize(8);d.text("Admission No.",W-M,10,{align:"right"});d.setTextColor(...GOLD);d.setFont("helvetica","bold");d.setFontSize(14);d.text(String(s.admission_no||""),W-M,18,{align:"right"});
+  // photo + identity
+  y=37;const ph=await pdfPhoto(s.photo_path),bx=W-M-32;d.setDrawColor(...NAVY);d.setLineWidth(0.4);d.rect(bx,y,32,40);
+  if(ph){const r=Math.min(32/ph.w,40/ph.h);d.addImage(ph.url,"JPEG",bx+(32-ph.w*r)/2,y+(40-ph.h*r)/2,ph.w*r,ph.h*r)}else{d.setTextColor(...GREY);d.setFontSize(8);d.setFont("helvetica","normal");d.text("No photo",bx+16,y+21,{align:"center"})}
+  d.setTextColor(...NAVY);d.setFont("helvetica","bold");d.setFontSize(17);const nm=d.splitTextToSize(s.full_name||"",CW-38);d.text(nm,M,y+7);let iy=y+7+nm.length*7;
+  const ur=pdfUrdu(s.full_name_ur);if(ur){const h=8,w=Math.min(70,ur.w/ur.h*h);d.addImage(ur.url,"PNG",M,iy-3,w,h);iy+=h+1}
+  d.setFont("helvetica","normal");d.setFontSize(10.5);d.setTextColor(...INK);d.text("S/o  "+(s.father_name||"-"),M,iy+2);iy+=7;
+  d.setFont("helvetica","bold");d.text(`${s.class_name||"-"}${s.section?"  |  Section "+s.section:""}`,M,iy+2);iy+=7;
+  d.setFont("helvetica","normal");d.setTextColor(...GREY);d.text(`Status: ${s.status||"-"}    Registration: ${s.workflow||"-"}`,M,iy+2);y=Math.max(y+44,iy+8);
+  band("Personal information");kv([["Date of birth",s.dob],["Gender",s.gender],["Admission date",s.admission_date],["Previous school",s.prev_school],["Previous class",s.prev_class],["Section / group",s.section]]);
+  band("Parents / guardian");kv([["Father's name",s.father_name],["Father's mobile",s.father_phone],["Father's CNIC",s.father_cnic],["Mother's name",s.mother_name],["Mother's contact",s.mother_phone],["Emergency contact",s.emergency_phone],["Guardian name",s.guardian_name],["Relationship",s.guardian_relation]]);
+  band("Address");kv([["Residential address",s.address],["City / area",s.city]],2);
+  if(s.remarks){band("Remarks");kv([["General remarks",s.remarks]],1)}
+  band("Fees & paper fund");kv([["Fee charged",money(P.b.charged)],["Fee paid",money(P.b.paid)],["Balance due",money(P.b.balance)]]);
+  table(["Paper fund session","Amount","Status","Date"],P.pf.map(x=>[x.session,money(x.amount),x.status,x.paid_on||"-"]),[46,36,36,40]);
+  table(["Recent receipts","Date","Amount"],P.pays.map(x=>[x.receipt_no+(x.voided?" (void)":""),x.paid_on,money(x.amount)]),[70,50,40]);
+  const tot=P.a.P+P.a.A+P.a.L;band("Attendance");kv([["Present",P.a.P],["Absent",P.a.A],["Leave",P.a.L],["Attendance",tot?Math.round(P.a.P/tot*100)+"%":"-"]],4);
+  band("Results");table(["Exam","Marks","Percentage"],Object.entries(P.ex).map(([n,e])=>[n,`${e.got} / ${e.max}`,e.max?(e.got/e.max*100).toFixed(1)+"%":"-"]),[80,45,35]);
+  band("Certificates issued");table(["Certificate no.","Type","Date"],P.ce.map(x=>[x.cert_no,x.kind,x.issued_on]),[70,50,40]);
+  band("Class history");table(["From","To","Session","Date"],P.hist.map(x=>[x.from_class,x.to_class,x.session||"-",String(x.at||"").slice(0,10)]),[40,40,40,40]);
+  const n=d.getNumberOfPages(),when=new Date().toLocaleString("en-GB");
+  for(let i=1;i<=n;i++){d.setPage(i);d.setDrawColor(200,208,222);d.setLineWidth(0.2);d.line(M,288,W-M,288);d.setFont("helvetica","normal");d.setFontSize(7.5);d.setTextColor(...GREY);d.text(`Generated ${when}  |  Confidential: for school office use`,M,292);d.text(`Page ${i} of ${n}`,W-M,292,{align:"right"})}
+  return d;
+}
+async function genProfile(id,o={}){
+  try{
+    try{await Promise.race([document.fonts.load("40px 'Noto Nastaliq Urdu'","ع"),new Promise(r=>setTimeout(r,2500))])}catch{}
+    const P=await loadProfile(id),blob=(await buildPdf(P)).output("blob"),path=id+".pdf";
+    const up=await sb.storage.from(PDF_BUCKET).upload(path,blob,{upsert:true,contentType:"application/pdf"});if(up.error)throw up.error;
+    const r=await sb.from("student_pdf").upsert({student_id:id,path,generated_at:new Date().toISOString(),size_bytes:blob.size},{onConflict:"student_id"});if(r.error)throw r.error;
+    if(!o.quiet)toast("Profile PDF saved");return {blob,P};
+  }catch(e){if(!o.quiet)toast("Profile PDF failed: "+(e.message||e),false);return null}
+}
+function printPdf(blob){const f=document.createElement("iframe");f.style.cssText="position:fixed;width:0;height:0;border:0";f.src=URL.createObjectURL(blob);
+  f.onload=()=>setTimeout(()=>{try{f.contentWindow.focus();f.contentWindow.print()}catch{window.open(f.src,"_blank")}},600);document.body.appendChild(f);setTimeout(()=>f.remove(),120000)}
+async function profileView(id){
+  $("#view").innerHTML='<div class="empty">Loading profile…</div>';
+  let P;try{P=await loadProfile(id)}catch(e){return toast(e.message,false)}
+  const {s,b,pf,pays,a,ex,ce,hist,set,stored}=P,tot=a.P+a.A+a.L,cur=pf.find(x=>x.session===set.academic_session);
+  let u="";if(s.photo_path){const r=await sb.storage.from("student-photos").createSignedUrl(s.photo_path,600);u=r.data?.signedUrl||""}
+  const T=(h,rows)=>rows.length?`<div class="tw"><table><tr>${h.map(x=>`<th>${x}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table></div>`:'<div class="empty">None</div>';
+  const kv=(l)=>`<div class="form" style="margin-top:8px">${l.map(([k,v])=>`<label>${k}<b style="color:var(--tx);font-size:14px">${esc(v)||"-"}</b></label>`).join("")}</div>`;
+  $("#view").innerHTML=`<div class="card"><div class="top"><button class="s" onclick="go('list')">← Back</button><button id="pdl">⬇ Download PDF</button><button class="s" id="ppr">🖨 Print</button>
+   <span class="tag">${stored?"Saved copy: "+new Date(stored.generated_at).toLocaleString():"No saved copy yet"}</span></div>
+   <div style="display:flex;gap:16px;flex-wrap:wrap">${u?`<img src="${u}" alt="" style="width:110px;height:140px;object-fit:cover;border-radius:8px">`:'<div class="empty" style="width:110px;border:1px dashed var(--bd);border-radius:8px">No photo</div>'}
+   <div><h2 style="margin:0">${esc(s.full_name)}</h2>${s.full_name_ur?`<div dir="rtl" style="font-size:20px;font-family:'Noto Nastaliq Urdu',Tahoma,serif;text-align:left">${esc(s.full_name_ur)}</div>`:""}
+   <div style="margin-top:6px">${esc(s.admission_no)} · ${esc(s.class_name)} ${esc(s.section)} · <span class="tag">${esc(s.status)}</span> <span class="tag">${esc(s.workflow)}</span></div><div style="color:var(--mut)">S/o ${esc(s.father_name)} · ${esc(s.father_phone)}</div></div></div></div>
+   <div class="grid" style="margin-top:12px"><div class="card stat"><b style="color:var(${b.balance>0?"--err":"--ok"})">${rs(b.balance)}</b><span>Fee balance</span></div>
+   <div class="card stat"><b style="font-size:18px;color:var(${cur&&cur.status==="Submitted"?"--ok":"--err"})">${cur?esc(cur.status):"-"}</b><span>Paper fund ${esc(set.academic_session)}</span></div>
+   <div class="card stat"><b>${tot?Math.round(a.P/tot*100)+"%":"-"}</b><span>Attendance (${tot} days)</span></div><div class="card stat"><b>${ce.length}</b><span>Certificates</span></div></div>
+   <div class="card" style="margin-top:12px"><h3>Personal and parents</h3>${kv([["Date of birth",s.dob],["Gender",s.gender],["Admission date",s.admission_date],["Previous school",s.prev_school],["Previous class",s.prev_class],["Father's mobile",s.father_phone],["Father's CNIC",s.father_cnic],["Mother's name",s.mother_name],["Mother's contact",s.mother_phone],["Guardian",s.guardian_name],["Relationship",s.guardian_relation],["Emergency contact",s.emergency_phone],["Address",[s.address,s.city].filter(Boolean).join(", ")]])}</div>
+   <div class="card" style="margin-top:12px"><h3>Recent receipts</h3>${T(["Receipt","Date","Amount"],pays.map(x=>[x.receipt_no+(x.voided?" (void)":""),x.paid_on,rs(x.amount)]))}</div>
+   <div class="card" style="margin-top:12px"><h3>Results</h3>${T(["Exam","Marks","%"],Object.entries(ex).map(([n,e])=>[n,e.got+" / "+e.max,e.max?(e.got/e.max*100).toFixed(1)+"%":"-"]))}</div>
+   <div class="card" style="margin-top:12px"><h3>Certificates</h3>${T(["No.","Type","Date"],ce.map(x=>[x.cert_no,x.kind,x.issued_on]))}<h3 style="margin-top:14px">Class history</h3>${T(["From","To","Session","Date"],hist.map(x=>[x.from_class,x.to_class,x.session,String(x.at||"").slice(0,10)]))}</div>`;
+  const run=async f=>{const r=await genProfile(id);if(r)f(r.blob);return r};
+  $("#pdl").onclick=async e=>{e.target.disabled=true;const r=await run(bl=>{const l=document.createElement("a");l.href=URL.createObjectURL(bl);l.download=(s.admission_no+"-"+s.full_name).replace(/[^\w.\- ]+/g,"_")+".pdf";l.click()});e.target.disabled=false;if(r)profileView(id)};
+  $("#ppr").onclick=async e=>{e.target.disabled=true;await run(printPdf);e.target.disabled=false}
+}
+async function profilesAdmin(){
+  const [{count:total},{count:have}]=await Promise.all([sb.from("students").select("id",{count:"exact",head:true}).eq("archived",false),sb.from("student_pdf").select("student_id",{count:"exact",head:true})]);
+  $("#view").innerHTML=`<div class="card"><h3>Student profile PDFs</h3><p><b>${have??0}</b> of <b>${total??0}</b> students have a saved profile PDF.</p>
+   <p style="color:var(--mut)">New and edited students get their PDF automatically. Use this to create PDFs for students registered earlier or imported by CSV. Keep this tab open while it runs. You can stop and continue later; students who already have a PDF are skipped.</p>
+   <div class="top"><button id="pgo">Create missing profile PDFs</button><button class="s" id="pstop" hidden>Stop</button></div><div id="pst" style="margin-top:8px"></div></div>`;
+  let stop=false;$("#pstop").onclick=()=>{stop=true};
+  const pages=async(mk)=>{const out=[];for(let i=0;;i+=1000){const {data}=await mk().range(i,i+999);out.push(...(data||[]));if(!data||data.length<1000)return out}};
+  $("#pgo").onclick=async e=>{e.target.disabled=true;$("#pstop").hidden=false;stop=false;$("#pst").textContent="Checking who needs a PDF…";
+    const done=new Set((await pages(()=>sb.from("student_pdf").select("student_id").order("student_id"))).map(x=>x.student_id));
+    const ids=(await pages(()=>sb.from("students").select("id").eq("archived",false).order("id"))).map(x=>x.id).filter(i=>!done.has(i));
+    let ok=0,bad=0;for(const i of ids){if(stop)break;(await genProfile(i,{quiet:true}))?ok++:bad++;$("#pst").textContent=`Created ${ok} · failed ${bad} · remaining ${ids.length-ok-bad}`}
+    e.target.disabled=false;$("#pstop").hidden=true;toast(stop?"Stopped. Run again to continue":`Finished: ${ok} created, ${bad} failed`,!bad);profilesAdmin()};
+}
 
 
 
