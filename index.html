@@ -690,6 +690,39 @@ async function printReceipt(id,w){w=w||window.open("","_blank");if(!w)return toa
   </style>${copy("Parent copy")}<div class="cut"><span>✂ cut here</span></div>${copy("Office copy")}`);
   w.document.close();w.focus();
   await new Promise(r=>{if(w.document.readyState==="complete")r();else w.addEventListener("load",r);setTimeout(r,3500)});w.print()}
+// ---------- Fee reports & opening balances ----------
+const tbl=(h,rows)=>rows.length?`<div class="tw"><table><tr>${h.map(x=>`<th>${x}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table></div>`:'<div class="empty">Nothing to show for this period</div>';
+async function openBal(items){const {data,error}=await sb.rpc("set_opening_balances",{items});if(error)return toast(error.message,false);
+  toast(`Applied ${data.applied}`+(data.rejected.length?`, rejected ${data.rejected.length}`:""),!data.rejected.length);
+  if(data.rejected.length)alert("Not applied (unknown admission no. or invalid amount):\n"+data.rejected.slice(0,30).join("\n")+(data.rejected.length>30?"\n…":""))}
+async function feeReports(){
+  const t=todayStr(),m1=t.slice(0,8)+"01";
+  $("#view").innerHTML=`<div class="card"><h3>Collection report</h3><div class="top"><label>From <input type="date" id="f1" value="${m1}" max="${t}"></label><label>To <input type="date" id="f2" value="${t}" max="${t}"></label><button id="fgo">Show</button></div><div id="fres"></div></div>
+   <div class="card" style="margin-top:12px"><h3>Class-wise fees (all time)</h3><div id="fcls"><div class="empty">Loading…</div></div></div>
+   ${role==="admin"?`<div class="card" style="margin-top:12px"><h3>Opening balance (old dues)</h3><p style="color:var(--mut)">Old dues carried from your previous record. One opening balance per student; setting it again replaces the old amount. It is included in the student's balance and the defaulters list.</p>
+   <div class="top"><input id="oa" placeholder="Admission no."><input id="ob" type="number" min="0" placeholder="Amount"><button id="os">Set</button><button class="s" id="oi">Import CSV</button><button class="s" id="ot">Template</button></div></div>`:""}`;
+  const run=async()=>{const d1=$("#f1").value,d2=$("#f2").value;if(!d1||!d2||d1>d2)return toast("Choose a valid date range",false);
+    const [a,b]=await Promise.all([sb.rpc("fee_daily",{d1,d2}),sb.rpc("fee_collected_by_class",{d1,d2})]);
+    if(a.error)return toast(a.error.message,false);
+    const tot=a.data.reduce((x,r)=>x+Number(r.total),0),rc=a.data.reduce((x,r)=>x+r.receipts,0);
+    $("#fres").innerHTML=`<div class="grid" style="margin-top:10px"><div class="card stat"><b>${rs(tot)}</b><span>Collected</span></div><div class="card stat"><b>${rc}</b><span>Receipts</span></div></div>
+     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))"><div><h4>By day</h4>${tbl(["Date","Receipts","Amount"],a.data.map(r=>[r.paid_on,r.receipts,rs(r.total)]))}</div><div><h4>By class</h4>${tbl(["Class","Receipts","Amount"],(b.data||[]).map(r=>[r.class_name,r.receipts,rs(r.total)]))}</div></div>
+     <button class="s" id="fcsv">⬇ Download CSV</button>`;
+    $("#fcsv").onclick=()=>dl(`collection-${d1}-to-${d2}.csv`,["Date,Receipts,Amount",...a.data.map(r=>[r.paid_on,r.receipts,r.total].map(csvCell).join(","))].join("\r\n"))};
+  $("#fgo").onclick=run;run();
+  const {data:cs}=await sb.rpc("fee_class_summary"),sum=k=>(cs||[]).reduce((x,r)=>x+Number(r[k]),0);
+  $("#fcls").innerHTML=cs?.length?tbl(["Class","Students","Charged","Paid","Balance"],[...cs.map(r=>[r.class_name,r.students,rs(r.charged),rs(r.paid),rs(r.balance)]),["Total",sum("students"),rs(sum("charged")),rs(sum("paid")),rs(sum("balance"))]])+`<button class="s" id="ccsv" style="margin-top:8px">⬇ Download CSV</button>`:'<div class="empty">No data yet</div>';
+  if(cs?.length)$("#ccsv").onclick=()=>dl("class-wise-fees.csv",["Class,Students,Charged,Paid,Balance",...cs.map(r=>[r.class_name,r.students,r.charged,r.paid,r.balance].map(csvCell).join(","))].join("\r\n"));
+  if(role!=="admin")return;
+  $("#os").onclick=()=>{const adm=$("#oa").value.trim(),v=$("#ob").value;if(!adm||v===""||Number(v)<0)return toast("Enter admission no. and a valid amount",false);openBal([{admission_no:adm,amount:Number(v)}])};
+  $("#ot").onclick=()=>dl("opening-balance-template.csv","admission_no,amount\r\nSPS-2026-0001,2500");
+  $("#oi").onclick=()=>{const i=document.createElement("input");i.type="file";i.accept=".csv";i.onchange=async()=>{
+    const rows=parseCSV(await i.files[0].text()),h=(rows.shift()||[]).map(x=>x.trim()),ai=h.indexOf("admission_no"),mi=h.indexOf("amount");
+    if(ai<0||mi<0)return toast("CSV needs admission_no and amount columns (use the Template)",false);
+    const items=rows.map(r=>{const v=(r[mi]||"").replace(/,/g,"").trim();return {admission_no:(r[ai]||"").trim(),amount:v===""?null:Number(v)}}).filter(x=>x.admission_no);
+    if(!items.length)return toast("No rows found",false);
+    if(!confirm(`Apply opening balance to ${items.length} students? Any existing opening balance of these students is replaced.`))return;openBal(items)};i.click()};
+}
 
 
 
