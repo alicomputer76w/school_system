@@ -973,6 +973,59 @@ async function profileView(id){
   $("#pdl").onclick=async e=>{e.target.disabled=true;const r=await run(bl=>{const l=document.createElement("a");l.href=URL.createObjectURL(bl);l.download=(s.admission_no+"-"+s.full_name).replace(/[^\w.\- ]+/g,"_")+".pdf";l.click()});e.target.disabled=false;if(r)profileView(id)};
   $("#ppr").onclick=async e=>{e.target.disabled=true;await run(printPdf);e.target.disabled=false};if($("#pvw"))$("#pvw").onclick=()=>savedPdf(id,"open")
 }
+async function dash(){
+  $("#view").innerHTML='<div class="empty">Loading…</div>';
+  const head=(f)=>{let q=sb.from("students").select("id",{count:"exact",head:true}).eq("archived",false);return f?f(q):q};
+  const monthStart=new Date();monthStart.setDate(1);
+  const [tot,act,male,fem,newm,rec,all]=await Promise.all([head(),head(q=>q.eq("status","Active")),head(q=>q.eq("gender","Male")),head(q=>q.eq("gender","Female")),
+    head(q=>q.gte("admission_date",monthStart.toISOString().slice(0,10))),
+    sb.from("students").select("id,admission_no,full_name,class_name,updated_at").eq("archived",false).order("updated_at",{ascending:false}).limit(6),
+    sb.from("students").select("class_name,admission_date").eq("archived",false).limit(5000)]);
+  const by={},mon={};(all.data||[]).forEach(s=>{by[s.class_name||"Unassigned"]=(by[s.class_name||"Unassigned"]||0)+1;const m=(s.admission_date||"").slice(0,7);if(m)mon[m]=(mon[m]||0)+1});
+  const mx=Math.max(1,...Object.values(by)), bars=o=>Object.entries(o).map(([k,v])=>`<div class="row"><span>${esc(k)}</span><div class="bar" style="width:${v/mx*60+1}%"></div><b>${v}</b></div>`).join("")||'<div class="empty">No records yet</div>';
+  const mons=Object.fromEntries(Object.entries(mon).sort().slice(-6));
+  $("#view").innerHTML=`<div class="grid">
+   ${[["Registered",tot.count],["Active",act.count],["Classes",classes.length],["New this month",newm.count],["Male",male.count],["Female",fem.count]].map(([a,b])=>`<div class="card stat"><b>${b??0}</b><span>${a}</span></div>`).join("")}</div>
+   <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr))">
+   <div class="card"><h3>Class-wise students</h3>${bars(by)}</div>
+   <div class="card"><h3>Monthly admissions</h3>${bars(mons)}</div>
+   <div class="card"><h3>Recently updated</h3>${(rec.data||[]).map(s=>`<div class="row">${canEdit()?`<a href="#" onclick="go('edit','${s.id}');return false">${esc(s.full_name)}</a>`:`<span>${esc(s.full_name)}</span>`}<span class="tag">${esc(s.admission_no)}</span></div>`).join("")||'<div class="empty">Nothing yet</div>'}
+   ${canEdit()?'<button style="margin-top:10px" onclick="go(\'add\')">➕ Register student</button>':""}</div></div>`;
+  await dashExtras();
+}
+// ---------- Dashboard: today's summary + backup reminder ----------
+const BACKUP_DAYS=7; // show the reminder when the last backup is this many days old (or older)
+async function dashExtras(){
+  if(!canEdit())return;
+  try{
+    const t=todayStr();
+    const [fd,pfp,ab,mk,pend,df,sm,set,stu]=await Promise.all([
+      sb.rpc("fee_daily",{d1:t,d2:t}),
+      sb.from("paper_fund").select("amount").eq("status","Submitted").eq("paid_on",t).limit(1000),
+      sb.from("attendance").select("student_id",{count:"exact",head:true}).eq("att_date",t).eq("status","A"),
+      sb.from("attendance").select("class_name").eq("att_date",t).limit(1000),
+      sb.from("students").select("id",{count:"exact",head:true}).eq("archived",false).in("workflow",["Submitted","Under Review"]),
+      sb.from("fee_defaulters").select("balance").limit(1000),
+      sb.rpc("paper_fund_summary"),
+      sb.from("settings").select("last_backup").single(),
+      sb.from("students").select("id",{count:"exact",head:true}).eq("archived",false)]);
+    if(!$("#view").textContent.includes("Class-wise students"))return; // user already moved to another screen
+    const sum=(a,f)=>(a||[]).reduce((x,r)=>x+Number(f(r)||0),0),
+      fee=sum(fd.data,r=>r.total),rc=sum(fd.data,r=>r.receipts),paper=sum(pfp.data,r=>r.amount),marked=new Set((mk.data||[]).map(x=>x.class_name)).size,
+      dues=df.data||[],dueSum=sum(dues,r=>r.balance),pfPend=sum(sm.data,r=>r.pending),pfAmt=sum(sm.data,r=>r.pending_amt);
+    const lb=set.data?.last_backup,days=lb?Math.floor((Date.now()-new Date(lb))/864e5):null;let bk="";
+    if((stu.count||0)>0&&(lb==null||days>=BACKUP_DAYS)){
+      const msg=lb==null?"No backup has been taken yet.":`The last backup was ${days} day${days===1?"":"s"} ago.`;
+      bk=`<div class="warn" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><span>⚠ ${msg} ${role==="admin"?"Please take a backup now.":"Please ask the admin to take a backup."}</span>${role==="admin"?'<button onclick="go(\'backup\')">Take backup now</button>':""}</div>`;
+    }else if(lb&&role==="admin")bk=`<div style="color:var(--mut);font-size:13px;margin-bottom:8px">✅ Last backup: ${days===0?"today":days+" day"+(days===1?"":"s")+" ago"}</div>`;
+    const C=(v,l,to,c)=>`<div class="card stat" style="cursor:pointer" onclick="go('${to}')"><b style="${String(v).startsWith("Rs")?"font-size:21px;white-space:nowrap;":""}${c?`color:var(${c})`:""}">${v}</b><span>${l}</span></div>`;
+    $("#view").insertAdjacentHTML("afterbegin",`${bk}<h3 style="margin:0 0 8px">Today · ${t}</h3><div class="grid">
+      ${C(rs(fee),`Fee collected (${rc} receipts)`,"freports")}${C(rs(paper),"Paper fund collected","paperfund")}
+      ${C(ab.count??0,`Absent today · ${marked} of ${classes.length} classes marked`,"attendance",(ab.count||0)>0?"--err":"")}
+      ${C(pend.count??0,"Registrations awaiting approval","list",(pend.count||0)>0?"--err":"")}
+      ${C(dues.length>=1000?"1000+":dues.length,`Fee defaulters · ${rs(dueSum)} due`,"fees")}${C(pfPend,`Paper fund pending · ${rs(pfAmt)}`,"paperfund")}</div>`);
+  }catch(e){}
+}
 
 
 
