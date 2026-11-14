@@ -1227,6 +1227,26 @@ async function settings(){
     const {error}=await sb.from("settings").update(upd).eq("id",1);error?toast(error.message,false):toast("Settings saved");
   };
 }
+// ---------- School logo (admin only) ----------
+function logoUrlOf(path){return path?sb.storage.from("school-assets").getPublicUrl(path).data.publicUrl:""}
+function logoBox(s){
+  const url=logoUrlOf(s.logo_path);
+  $("#stf").insertAdjacentHTML("beforebegin",`<div class="card" style="display:flex;gap:16px;align-items:center;flex-wrap:wrap">
+   <div style="width:120px;height:120px;border:1px dashed var(--bd);border-radius:10px;display:grid;place-items:center;background:#fff">${url?`<img src="${url}" alt="School logo" style="max-width:110px;max-height:110px">`:'<small style="color:#888">No logo</small>'}</div>
+   <div style="flex:1;min-width:220px"><h3 style="margin:0 0 6px">School logo</h3>
+   <small style="color:var(--mut)">Shown on certificates, receipts, report cards and slips. PNG, JPG or WebP, up to 1 MB. Only the admin can change it.</small>
+   <div class="top" style="margin-top:8px"><input type="file" id="logofile" accept="image/png,image/jpeg,image/webp" style="max-width:260px"><button type="button" id="logoup">Upload logo</button>${url?'<button type="button" class="d" id="logodel">Remove logo</button>':""}</div></div></div>`);
+  $("#logoup").onclick=async()=>{const f=$("#logofile").files[0];if(!f)return toast("Choose an image first",false);
+    if(f.size>1048576)return toast("Logo must be 1 MB or smaller",false);
+    const ext=((f.name.split(".").pop()||"png").toLowerCase().replace(/[^a-z0-9]/g,""))||"png",path=`logo-${Date.now()}.${ext}`;
+    const up=await sb.storage.from("school-assets").upload(path,f,{contentType:f.type,upsert:false});if(up.error)return toast("Upload failed: "+up.error.message,false);
+    const {error}=await sb.from("settings").update({logo_path:path}).eq("id",1);if(error){await sb.storage.from("school-assets").remove([path]);return toast(error.message,false)}
+    if(s.logo_path)await sb.storage.from("school-assets").remove([s.logo_path]);
+    toast("Logo saved");settings()};
+  if($("#logodel"))$("#logodel").onclick=async()=>{if(!confirm("Remove the school logo?"))return;
+    const {error}=await sb.from("settings").update({logo_path:null}).eq("id",1);if(error)return toast(error.message,false);
+    await sb.storage.from("school-assets").remove([s.logo_path]);toast("Logo removed");settings()};
+}
 
 
 
