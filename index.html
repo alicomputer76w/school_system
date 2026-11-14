@@ -382,6 +382,7 @@ async function feeOpen(id){
   $("#fr").innerHTML=`<div class="card" style="margin-top:8px"><b>${esc(s.full_name)}</b> (${esc(s.admission_no)}) · ${esc(s.class_name)} ${esc(s.section)}<br>Charged ${rs(b.charged)} · Paid ${rs(b.paid)} · <b style="color:var(${b.balance>0?"--err":"--ok"})">Balance ${rs(b.balance)}</b>
    <div class="top" style="margin-top:8px"><input id="pa" type="number" min="1" placeholder="Amount" value="${b.balance>0?b.balance:""}"><input id="pn" placeholder="Note (e.g. Nov 2026 fee)"><button id="pr">Receive & print</button></div>
    ${role==="admin"?`<div class="top">Monthly discount (Rs) <input id="dc" type="number" min="0" style="flex:0;width:110px" value="${s.discount||0}"><button class="s" id="dcb">Set</button></div>`:""}
+   <div id="fmh"></div>
    <table>${(ps||[]).map(x=>`<tr><td>${esc(x.receipt_no)}</td><td>${esc(x.paid_on)}</td><td>${rs(x.amount)}${x.voided?" (void)":""}</td><td><button class="s" onclick="printReceipt('${x.id}')">Reprint</button>${role==="admin"&&!x.voided?` <button class="d" onclick="voidPay('${x.id}','${id}')">Void</button>`:""}</td></tr>`).join("")}</table></div>`;
   $("#pr").onclick=async e=>{const a=Number($("#pa").value);if(!(a>0))return toast("Enter a valid amount",false);const w=window.open("","_blank");e.target.disabled=true;
     const {data:p,error}=await sb.from("fee_payments").insert({student_id:id,amount:a,note:$("#pn").value.trim()||null}).select("id").single();
@@ -751,6 +752,7 @@ async function feeOpen(id){
    ${pending?'<div id="pt" class="tag" style="margin-bottom:6px"></div>':""}
    ${role==="admin"?`<div class="top">Monthly discount (Rs) <input id="dc" type="number" min="0" style="flex:0;width:110px" value="${s.discount||0}"><button class="s" id="dcb">Set</button></div>`:""}
    <table>${(ps||[]).map(x=>`<tr><td>${esc(x.receipt_no)}</td><td>${esc(x.paid_on)}</td><td>${rs(x.amount)}${x.paper_part>0?` <small>(incl. paper fund ${rs(x.paper_part)})</small>`:""}${x.voided?" (void)":""}</td><td><button class="s" onclick="printReceipt('${x.id}')">Reprint</button>${role==="admin"&&!x.voided?` <button class="d" onclick="voidPay('${x.id}','${id}')">Void</button>`:""}</td></tr>`).join("")}</table></div>`;
+   await loadMonths(id);
   const mode=()=>$("#pm")?.value||"fee",upd=()=>{$("#pa").style.display=mode()==="paper"?"none":"";if($("#pt")){const f=mode()==="paper"?0:Number($("#pa").value||0),p=mode()==="fee"?0:cur.amount;$("#pt").textContent=`Receipt total: ${rs(f+p)}`+(p?` (paper fund ${rs(p)})`:"")}};
   if(pending){$("#pm").onchange=upd;$("#pa").oninput=upd;upd()}
   $("#pr").onclick=async e=>{const m=mode(),fee=m==="paper"?0:Number($("#pa").value||0),paper=m!=="fee";
@@ -1108,6 +1110,19 @@ async function rollover(){
     alert(`Rollover complete (${data.session}).\nMoved up: ${data.moved}\nGraduated: ${data.graduated}\nRepeat (stayed): ${data.kept}\nPaper fund records created: ${data.paper_fund_created}`);
     go("dash");
   };
+}
+// ---------- Month-wise fee history ----------
+async function loadMonths(id){
+  const el=$("#fmh");if(!el)return;
+  const {data,error}=await sb.rpc("fee_month_status",{sid:id});
+  if(error||!data?.length){el.innerHTML=error?'':'<div class="empty">No monthly charges yet. Use Generate dues for the month in Fees.</div>';return}
+  const lab=m=>m==="0000-00"?"Opening (old dues)":new Date(m+"-01").toLocaleDateString("en-GB",{month:"long",year:"numeric"});
+  const tag=x=>x==="Paid"?'<span class="tag" style="color:var(--ok)">✅ Paid</span>':x==="Partial"?'<span class="tag" style="color:#b7791f">◐ Partial</span>':'<span class="tag" style="color:var(--err)">⏳ Due</span>';
+  const paid=data.filter(r=>r.status==="Paid").length,due=data.length-paid;
+  el.innerHTML=`<h4 style="margin:12px 0 6px">Month-wise fee history <small style="color:var(--mut);font-weight:400">· ${paid} paid · ${due} pending</small></h4>
+   <div class="tw"><table><tr><th>Month</th><th>Charged</th><th>Paid</th><th>Due</th><th>Status</th><th>Fully paid on</th></tr>
+   ${data.map(r=>`<tr><td>${esc(lab(r.month))}${r.kind!=="Monthly"?` <small>(${esc(r.kind)})</small>`:""}</td><td>${rs(r.amount)}</td><td>${rs(r.paid)}</td><td>${rs(r.due)}</td><td>${tag(r.status)}</td><td>${esc(r.paid_on||"-")}</td></tr>`).join("")}</table></div>
+   <small style="color:var(--mut)">Payments go to the oldest unpaid month first. Paper fund is not counted here.</small>`;
 }
 
 
