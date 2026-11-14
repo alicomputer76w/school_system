@@ -56,7 +56,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 8px;
 
 <div class="app" id="app" hidden>
 <aside id="side"><h1>🏫 The South Punjab School<br><small style="font-weight:400;color:#9db8d9">Chowk Azam, Layyah</small></h1>
-  <a data-v="dash" class="on">📊 Dashboard</a><a data-v="list">👥 Students</a><a <a data-v="quality" id="navQ">🔎 Data Quality</a><a data-v="fees" id="navFee">💰 Fees</a><a data-v="freports" id="navFR">📊 Fee Reports</a><a data-v="paperfund" id="navPF">📄 Paper Fund</a><a data-v="profiles" id="navPP">🗂 Profile PDFs</a><a data-v="attendance" id="navAtt">✅ Attendance</a><a data-v="certs" id="navCert">📜 Certificates</a><a data-v="results" id="navRes">📝 Results</a><a data-v="add" id="navAdd">➕ Register Student</a><a data-v="audit" id="navAudit">🧾 Audit Log</a><a data-v="users" id="navUsers">👤 Users</a><a data-v="settings" id="navSet">⚙ Settings</a><a data-v="classes" id="navCls">🏷 Classes</a><a data-v="promote" id="navPro">⬆ Promotion</a><a data-v="backup" id="navBk">💾 Backup</a>
+  <a data-v="dash" class="on">📊 Dashboard</a><a data-v="list">👥 Students</a><a <a data-v="quality" id="navQ">🔎 Data Quality</a><a data-v="fees" id="navFee">💰 Fees</a><a data-v="freports" id="navFR">📊 Fee Reports</a><a data-v="paperfund" id="navPF">📄 Paper Fund</a><a data-v="profiles" id="navPP">🗂 Profile PDFs</a><a data-v="rollover" id="navRoll">🎓 Naya Saal</a><a data-v="attendance" id="navAtt">✅ Attendance</a><a data-v="certs" id="navCert">📜 Certificates</a><a data-v="results" id="navRes">📝 Results</a><a data-v="add" id="navAdd">➕ Register Student</a><a data-v="audit" id="navAudit">🧾 Audit Log</a><a data-v="users" id="navUsers">👤 Users</a><a data-v="settings" id="navSet">⚙ Settings</a><a data-v="classes" id="navCls">🏷 Classes</a><a data-v="promote" id="navPro">⬆ Promotion</a><a data-v="backup" id="navBk">💾 Backup</a>
   <a id="theme">🌓 Theme</a><a id="out">🚪 Logout</a></aside>
 <main><div class="top"><button class="s menu" id="mn">☰</button>
   <input id="gs" placeholder="Search name, admission no. or father's name…"><span class="tag" id="who"></span></div>
@@ -88,6 +88,7 @@ async function boot(){
        $("#navFR").hidden=!canEdit();
          $("#navPF").hidden=!canEdit();
            $("#navPP").hidden=role!=="admin";
+           $("#navRoll").hidden=role!=="admin";
   go("dash");
 }
 
@@ -105,7 +106,7 @@ $("#gs").addEventListener("keydown",e=>{if(e.key==="Enter"){st.q=e.target.value.
 function go(v,arg){
   document.querySelectorAll("aside a[data-v]").forEach(a=>a.classList.toggle("on",a.dataset.v===v));
   $("#side").classList.remove("open");
-  ({dash,list,add:()=>form(),edit:()=>form(arg),audit,users,settings,classes:classesView,promote,backup,quality,fees,attendance,certs,results,freports:feeReports,paperfund:paperFund,profile:profileView,profiles:profilesAdmin})[v](arg);
+  ({dash,list,add:()=>form(),edit:()=>form(arg),audit,users,settings,classes:classesView,promote,backup,quality,fees,attendance,certs,results,freports:feeReports,paperfund:paperFund,profile:profileView,profiles:profilesAdmin,rollover:rollover})[v](arg);
 }
 
 // ---------- Dashboard (real counts from DB) ----------
@@ -1065,6 +1066,48 @@ async function dash(){
    <div class="card"><h3>Recently updated</h3>${(rec.data||[]).map(s=>`<div class="row">${canEdit()?`<a href="#" onclick="go('edit','${s.id}');return false">${esc(s.full_name)}</a>`:`<span>${esc(s.full_name)}</span>`}<span class="tag">${esc(s.admission_no)}</span></div>`).join("")||'<div class="empty">Nothing yet</div>'}
    ${canEdit()?'<button style="margin-top:10px" onclick="go(\'add\')">➕ Register student</button>':""}</div></div>`;
   await dashExtras();
+}
+// ---------- Naya saal (session rollover, admin) ----------
+const nextSess=s=>{const m=/^(\d{4})-(\d{2})$/.exec(s||"");if(!m)return"";const y=+m[1]+1;return y+"-"+String((y+1)%100).padStart(2,"0")};
+async function rollover(){
+  if(role!=="admin")return $("#view").innerHTML='<div class="empty">Admins only.</div>';
+  $("#view").innerHTML='<div class="empty">Loading…</div>';
+  const [{data:set},{data:cls},stu]=await Promise.all([
+    sb.from("settings").select("academic_session,last_backup").single(),
+    sb.from("classes").select("name,sort,active").order("sort"),
+    allRows(()=>sb.from("students").select("id,admission_no,full_name,class_name,section").eq("archived",false).eq("status","Active").order("class_name").order("full_name"))]);
+  const list=cls||[],nextOf=n=>{const c1=list.find(c=>c.name===n);if(!c1)return null;const c2=list.find(c=>c.active&&c.sort>c1.sort);return c2?c2.name:null};
+  const lb=set?.last_backup?new Date(set.last_backup):null,backupToday=!!lb&&(Date.now()-lb)<864e5;
+  const cur=set?.academic_session||"",ns0=nextSess(cur);
+  const byCls={};stu.forEach(s=>(byCls[s.class_name]??=[]).push(s));
+  const order=Object.keys(byCls).sort((a,b)=>(list.find(c=>c.name===a)?.sort??999)-(list.find(c=>c.name===b)?.sort??999));
+  $("#view").innerHTML=`<div class="card"><h3>Naya saal (session rollover)</h3>
+   <p style="color:var(--mut)">Saal mein ek baar chalta hai. Har active student agli class mein jata hai, Class 10 wale Graduate ho jate hain, aur naye session ke paper fund records ban jate hain. Jo bachche is saal bhi wahi class mein rahenge (repeat), unhein neeche tick karein.</p>
+   <div class="top"><span>Current session: <b>${esc(cur)}</b></span><label>New session <input id="rns" value="${esc(ns0)}" placeholder="2027-28" style="flex:0;width:120px"></label></div>
+   <div id="rbk" style="margin:10px 0"></div>
+   <h3 style="margin-top:14px">Preview</h3><div class="tw"><table><tr><th>Current class</th><th>Students</th><th>Moves to</th><th>Repeat (stay)</th></tr>
+   ${order.map(c=>`<tr data-c="${esc(c)}"><td>${esc(c)}</td><td>${byCls[c].length}</td><td>${esc(nextOf(c)||"Graduated")}</td><td class="rc">0</td></tr>`).join("")}</table></div>
+   <h3 style="margin-top:14px">Repeat students (stay in same class)</h3>
+   <div class="tw" style="max-height:320px;overflow:auto"><table>${stu.map(s=>`<tr><td><input type="checkbox" class="rep" value="${s.id}" data-c="${esc(s.class_name)}"></td><td>${esc(s.admission_no)}</td><td>${esc(s.full_name)}</td><td>${esc(s.class_name)} ${esc(s.section)}</td></tr>`).join("")}</table></div>
+   <div class="top" style="margin-top:12px"><button id="rgo">Start rollover</button><span id="rsum" class="tag"></span></div></div>`;
+  $("#rbk").innerHTML=backupToday?'<div style="color:var(--ok)">✅ Aaj ka backup mojood hai. Aap aage barh sakte hain.</div>':'<div class="warn">⚠ Pehle aaj ka backup lein. Backup screen par Download backup dabayein, phir yahan wapas aayein.</div>';
+  const recalc=()=>{const rep=[...document.querySelectorAll(".rep:checked")],rs2=new Set(rep.map(x=>x.value)),cnt={};
+    rep.forEach(x=>cnt[x.dataset.c]=(cnt[x.dataset.c]||0)+1);
+    document.querySelectorAll("tr[data-c]").forEach(tr=>{tr.querySelector(".rc").textContent=cnt[tr.dataset.c]||0});
+    let mv=0,gr=0;stu.forEach(s=>{if(rs2.has(s.id))return;nextOf(s.class_name)?mv++:gr++});
+    $("#rsum").textContent=`${mv} move up · ${gr} graduate · ${rep.length} repeat`};
+  document.querySelectorAll(".rep").forEach(x=>x.onchange=recalc);recalc();
+  $("#rgo").disabled=!backupToday;
+  $("#rgo").onclick=async()=>{
+    const ns=$("#rns").value.trim(),exclude=[...document.querySelectorAll(".rep:checked")].map(x=>x.value);
+    if(!/^\d{4}-\d{2}$/.test(ns))return toast("Session must look like 2027-28",false);
+    if(!confirm(`Start rollover to ${ns}?\n\n${$("#rsum").textContent}\n\nEvery student's class changes. Restore does NOT undo this. Continue?`))return;
+    $("#rgo").disabled=true;
+    const {data,error}=await sb.rpc("rollover_session",{new_session:ns,exclude});
+    if(error){$("#rgo").disabled=false;return toast(error.message,false)}
+    alert(`Rollover complete (${data.session}).\nMoved up: ${data.moved}\nGraduated: ${data.graduated}\nRepeat (stayed): ${data.kept}\nPaper fund records created: ${data.paper_fund_created}`);
+    go("dash");
+  };
 }
 
 
