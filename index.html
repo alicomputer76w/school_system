@@ -1189,6 +1189,44 @@ async function fineReport(){
     dl(`fine-report-${last.d1}-to-${last.d2}.csv`,L.map(r=>r.map(csvCell).join(",")).join("\r\n"))};
   await run();
 }
+// ---------- Settings (school identity + academic rules) ----------
+async function settings(){
+  const {data:s,error}=await sb.from("settings").select("*").single();
+  if(error)return toast(error.message,false);
+  const v=x=>esc(x??""),gl=(s.grades||[]).map(([m,g])=>m+"="+g).join("\n");
+  $("#view").innerHTML=`<form class="card" id="stf" style="display:grid;gap:14px"><h2 style="margin:0">Settings</h2>
+   <h3>School identity <small style="color:var(--mut);font-weight:400">shown on receipts, certificates and report cards</small></h3>
+   <div class="form">
+    <label>School name<input name="school_name" value="${v(s.school_name)}" required></label>
+    <label>Principal's name<input name="principal_name" value="${v(s.principal_name)}" placeholder="Name of principal"></label>
+    <label>Phone<input name="school_phone" value="${v(s.school_phone)}" placeholder="0300-1234567"></label>
+    <label>Email<input name="school_email" type="email" value="${v(s.school_email)}"></label>
+    <label style="grid-column:1/-1">Address<input name="school_address" value="${v(s.school_address)}"></label>
+    <label style="grid-column:1/-1">Footer text on receipts<input name="doc_footer" value="${v(s.doc_footer)}" placeholder="Thank you for choosing our school"></label>
+   </div>
+   <h3>Academic year</h3>
+   <div class="form">
+    <label>Current session<input name="academic_session" value="${v(s.academic_session)}" placeholder="2026-27" required></label>
+    <label>Session starts<input name="session_start" type="date" value="${v(s.session_start)}"></label>
+    <label>Session ends<input name="session_end" type="date" value="${v(s.session_end)}"></label>
+    <label>Admission prefix<input name="adm_prefix" value="${v(s.adm_prefix)}" pattern="[A-Za-z0-9]{1,10}" required></label>
+    <label>Year in admission no.<select name="adm_include_year"><option value="true" ${s.adm_include_year?"selected":""}>Yes</option><option value="false" ${s.adm_include_year?"":"selected"}>No</option></select></label>
+   </div>
+   <h3>Results</h3>
+   <div class="form">
+    <label>Pass mark (% in every subject)<input name="pass_pct" type="number" min="0" max="100" step="0.5" value="${v(s.pass_pct)}"></label>
+    <label style="grid-column:1/-1">Grades, one per line: minimum % = grade (the lowest line must be 0)<textarea name="grades" rows="7">${v(gl)}</textarea></label>
+   </div>
+   <div><button>Save settings</button> <span class="tag">New documents use the new values</span></div></form>`;
+  $("#stf").onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
+    let grades;try{grades=f.grades.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{const [m,g]=l.split("=");const n=Number(m);if(!g||isNaN(n)||n<0||n>100)throw 0;return [n,g.trim()]}).sort((a,b)=>b[0]-a[0])}catch{return toast("Each grade line must look like 80=A+",false)}
+    if(!grades.length||grades[grades.length-1][0]!==0)return toast("The lowest grade line must be 0",false);
+    const upd={school_name:f.school_name.trim(),principal_name:f.principal_name.trim()||null,school_phone:f.school_phone.trim()||null,school_email:f.school_email.trim()||null,
+      school_address:f.school_address.trim()||null,doc_footer:f.doc_footer.trim()||null,academic_session:f.academic_session.trim(),session_start:f.session_start||null,
+      session_end:f.session_end||null,adm_prefix:f.adm_prefix.trim(),adm_include_year:f.adm_include_year==="true",pass_pct:Number(f.pass_pct),grades};
+    const {error}=await sb.from("settings").update(upd).eq("id",1);error?toast(error.message,false):toast("Settings saved");
+  };
+}
 
 
 
