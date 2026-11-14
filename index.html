@@ -1135,8 +1135,9 @@ async function fines(){
   $("#view").innerHTML=`<div class="grid"><div class="card stat"><b>${rs(tot)}</b><span>Pending fines</span></div><div class="card stat"><b>${cnt}</b><span>Pending items</span></div></div>
    <div class="card" style="margin-top:12px"><h3>Find student</h3><div class="top"><input id="fq" placeholder="Admission no. or name"><button id="fb">Find</button></div><div id="fr"></div></div>
    ${role==="admin"?`<div class="card" style="margin-top:12px"><h3>Fine amounts</h3><div class="top"><label>Absent (per day) <input id="fa" type="number" min="0" value="${set?.fine_absent??20}" style="flex:0;width:110px"></label><label>Uniform <input id="fu" type="number" min="0" value="${set?.fine_uniform??50}" style="flex:0;width:110px"></label><button id="fsv">Save</button></div><small style="color:var(--mut)">Leave is never fined. Changes apply to new fines only.</small></div>`:""}
+   <div class="card" style="margin-top:12px" id="frepcard"><div id="frep"></div></div>
    <div class="card" style="margin-top:12px"><h3>Recent fine receipts</h3>${(rec||[]).length?`<div class="tw"><table><tr><th>Receipt</th><th>Student</th><th>Date</th><th>Amount</th><th></th></tr>${rec.map(x=>`<tr><td>${esc(x.receipt_no)}${x.voided?" (void)":""}</td><td>${esc(x.students?.full_name)} (${esc(x.students?.admission_no)})</td><td>${esc(x.paid_on)}</td><td>${rs(x.amount)}</td><td><button class="s" onclick="printFineReceipt('${x.id}')">Reprint</button>${role==="admin"&&!x.voided?` <button class="d" onclick="voidFine('${x.id}')">Void</button>`:""}</td></tr>`).join("")}</table></div>`:'<div class="empty">No fine receipts yet</div>'}</div>`;
-  $("#fb").onclick=fineFind;$("#fq").onkeydown=e=>{if(e.key==="Enter")fineFind()};
+  $("#fb").onclick=fineFind;$("#fq").onkeydown=e=>{if(e.key==="Enter")fineFind()};fineReport();
   if(role==="admin")$("#fsv").onclick=async()=>{const {error}=await sb.from("settings").update({fine_absent:Number($("#fa").value)||0,fine_uniform:Number($("#fu").value)||0}).eq("id",1);error?toast(error.message,false):toast("Fine amounts saved")};
 }
 async function fineFind(){const t=$("#fq").value.trim().replace(/[,()%]/g," ");if(!t)return;
@@ -1164,6 +1165,30 @@ async function printFineReceipt(id){const w=window.open("","_blank");if(!w)retur
   const [{data:fs},{data:set}]=await Promise.all([sb.from("fines").select("kind,amount,reason").eq("payment_id",id),sb.from("settings").select("school_name").single()]);
   w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(p.receipt_no)}</title><style>body{font:14px Arial;padding:10mm}.r{border:2px solid #0b2447;max-width:140mm;padding:8mm}h2{margin:0;text-align:center;color:#0b2447}table{width:100%;border-collapse:collapse;margin-top:8px}td,th{border:1px solid #999;padding:6px;text-align:left}.v{color:#c00;text-align:center;font-weight:bold;font-size:20px}</style><div class="r"><h2>${esc(set?.school_name)}</h2><p style="text-align:center;margin:4px 0">Fine Receipt</p>${p.voided?'<div class="v">VOID</div>':""}<table><tr><td>Receipt no.</td><td>${esc(p.receipt_no)}</td></tr><tr><td>Date</td><td>${esc(p.paid_on)}</td></tr><tr><td>Student</td><td>${esc(p.students?.full_name)} (${esc(p.students?.admission_no)})</td></tr><tr><td>Class</td><td>${esc(p.students?.class_name)}</td></tr></table><table><tr><th>Fine</th><th>Amount</th></tr>${(fs||[]).map(f=>`<tr><td>${esc(f.kind)}${f.reason?" – "+esc(f.reason):""}</td><td>${rs(f.amount)}</td></tr>`).join("")}<tr><th>Total</th><th>${rs(p.amount)}</th></tr></table><p style="margin-top:20mm">Signature: ____________</p></div>`);
   w.document.close();w.focus();setTimeout(()=>w.print(),400)}
+// ---------- Fine report (inside the Fines screen) ----------
+async function fineReport(){
+  const host=$("#frep");if(!host)return;
+  const t=todayStr(),m1=t.slice(0,8)+"01";
+  host.innerHTML=`<h3>Fine report</h3><div class="top"><label>From <input type="date" id="rf1" value="${m1}" max="${t}"></label><label>To <input type="date" id="rf2" value="${t}" max="${t}"></label><button id="rgo2">Show</button><button class="s" id="rcsv">⬇ CSV</button></div><div id="rres"></div>`;
+  let last=null;
+  const tbl=(h,rows)=>rows.length?`<div class="tw"><table><tr>${h.map(x=>`<th>${x}</th>`).join("")}</tr>${rows.map(r=>`<tr>${r.map(c=>`<td>${esc(c)}</td>`).join("")}</tr>`).join("")}</table></div>`:'<div class="empty">Nothing in this period</div>';
+  const run=async()=>{
+    const d1=$("#rf1").value,d2=$("#rf2").value;if(!d1||!d2||d1>d2)return toast("Choose a valid date range",false);
+    const [a,b,c,p]=await Promise.all([sb.rpc("fine_report_daily",{d1,d2}),sb.rpc("fine_report_by_class",{d1,d2}),sb.rpc("fine_report_by_kind",{d1,d2}),sb.rpc("fine_pending_by_class")]);
+    const err=a.error||b.error||c.error||p.error;if(err)return toast(err.message,false);
+    const tot=a.data.reduce((x,r)=>x+Number(r.total),0),rc=a.data.reduce((x,r)=>x+r.receipts,0),pend=p.data.reduce((x,r)=>x+Number(r.amount),0);
+    last={d1,d2,daily:a.data,cls:b.data,kind:c.data,pend:p.data};
+    $("#rres").innerHTML=`<div class="grid" style="margin-top:10px"><div class="card stat"><b>${rs(tot)}</b><span>Collected in period</span></div><div class="card stat"><b>${rc}</b><span>Receipts</span></div><div class="card stat"><b>${rs(pend)}</b><span>Still pending (all time)</span></div></div>
+     <h4>By kind</h4>${tbl(["Kind","Items","Amount"],c.data.map(r=>[r.kind,r.items,rs(r.total)]))}
+     <h4>By day</h4>${tbl(["Date","Receipts","Amount"],a.data.map(r=>[r.paid_on,r.receipts,rs(r.total)]))}
+     <h4>By class</h4>${tbl(["Class","Receipts","Amount"],b.data.map(r=>[r.class_name,r.receipts,rs(r.total)]))}
+     <h4>Pending by class (still to collect)</h4>${tbl(["Class","Students","Items","Amount"],p.data.map(r=>[r.class_name,r.students,r.items,rs(r.amount)]))}`;
+  };
+  $("#rgo2").onclick=run;$("#rcsv").onclick=()=>{if(!last)return toast("Click Show first",false);
+    const L=[["Fine report",last.d1+" to "+last.d2],[],["Kind","Items","Amount"],...last.kind.map(r=>[r.kind,r.items,r.total]),[],["Date","Receipts","Amount"],...last.daily.map(r=>[r.paid_on,r.receipts,r.total]),[],["Class","Receipts","Amount"],...last.cls.map(r=>[r.class_name,r.receipts,r.total]),[],["Pending class","Students","Items","Amount"],...last.pend.map(r=>[r.class_name,r.students,r.items,r.amount])];
+    dl(`fine-report-${last.d1}-to-${last.d2}.csv`,L.map(r=>r.map(csvCell).join(",")).join("\r\n"))};
+  await run();
+}
 
 
 
