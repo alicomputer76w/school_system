@@ -1226,6 +1226,9 @@ async function settings(){
       session_end:f.session_end||null,adm_prefix:f.adm_prefix.trim(),adm_include_year:f.adm_include_year==="true",pass_pct:Number(f.pass_pct),grades};
     const {error}=await sb.from("settings").update(upd).eq("id",1);error?toast(error.message,false):toast("Settings saved");
   };
+
+  // Display school logo upload section
+  logoBox(s);
 }
 // ---------- School logo (admin only) ----------
 function logoUrlOf(path){return path?sb.storage.from("school-assets").getPublicUrl(path).data.publicUrl:""}
