@@ -56,7 +56,7 @@ table{width:100%;border-collapse:collapse}th,td{text-align:left;padding:9px 8px;
 
 <div class="app" id="app" hidden>
 <aside id="side"><h1>🏫 The South Punjab School<br><small style="font-weight:400;color:#9db8d9">Chowk Azam, Layyah</small></h1>
-  <a data-v="dash" class="on">📊 Dashboard</a><a data-v="list">👥 Students</a><a <a data-v="quality" id="navQ">🔎 Data Quality</a><a data-v="fees" id="navFee">💰 Fees</a><a data-v="freports" id="navFR">📊 Fee Reports</a><a data-v="paperfund" id="navPF">📄 Paper Fund</a><a data-v="profiles" id="navPP">🗂 Profile PDFs</a><a data-v="rollover" id="navRoll">🎓 Naya Saal</a><a data-v="attendance" id="navAtt">✅ Attendance</a><a data-v="certs" id="navCert">📜 Certificates</a><a data-v="results" id="navRes">📝 Results</a><a data-v="add" id="navAdd">➕ Register Student</a><a data-v="audit" id="navAudit">🧾 Audit Log</a><a data-v="users" id="navUsers">👤 Users</a><a data-v="settings" id="navSet">⚙ Settings</a><a data-v="classes" id="navCls">🏷 Classes</a><a data-v="promote" id="navPro">⬆ Promotion</a><a data-v="backup" id="navBk">💾 Backup</a>
+  <a data-v="dash" class="on">📊 Dashboard</a><a data-v="list">👥 Students</a><a <a data-v="quality" id="navQ">🔎 Data Quality</a><a data-v="fees" id="navFee">💰 Fees</a><a data-v="freports" id="navFR">📊 Fee Reports</a><a data-v="paperfund" id="navPF">📄 Paper Fund</a><a data-v="profiles" id="navPP">🗂 Profile PDFs</a><a data-v="rollover" id="navRoll">🎓 Naya Saal</a><a data-v="fines" id="navFines">⚠ Fines</a><a data-v="attendance" id="navAtt">✅ Attendance</a><a data-v="certs" id="navCert">📜 Certificates</a><a data-v="results" id="navRes">📝 Results</a><a data-v="add" id="navAdd">➕ Register Student</a><a data-v="audit" id="navAudit">🧾 Audit Log</a><a data-v="users" id="navUsers">👤 Users</a><a data-v="settings" id="navSet">⚙ Settings</a><a data-v="classes" id="navCls">🏷 Classes</a><a data-v="promote" id="navPro">⬆ Promotion</a><a data-v="backup" id="navBk">💾 Backup</a>
   <a id="theme">🌓 Theme</a><a id="out">🚪 Logout</a></aside>
 <main><div class="top"><button class="s menu" id="mn">☰</button>
   <input id="gs" placeholder="Search name, admission no. or father's name…"><span class="tag" id="who"></span></div>
@@ -89,6 +89,7 @@ async function boot(){
          $("#navPF").hidden=!canEdit();
            $("#navPP").hidden=role!=="admin";
            $("#navRoll").hidden=role!=="admin";
+           $("#navFines").hidden=!canEdit();
   go("dash");
 }
 
@@ -106,7 +107,7 @@ $("#gs").addEventListener("keydown",e=>{if(e.key==="Enter"){st.q=e.target.value.
 function go(v,arg){
   document.querySelectorAll("aside a[data-v]").forEach(a=>a.classList.toggle("on",a.dataset.v===v));
   $("#side").classList.remove("open");
-  ({dash,list,add:()=>form(),edit:()=>form(arg),audit,users,settings,classes:classesView,promote,backup,quality,fees,attendance,certs,results,freports:feeReports,paperfund:paperFund,profile:profileView,profiles:profilesAdmin,rollover:rollover})[v](arg);
+  ({dash,list,add:()=>form(),edit:()=>form(arg),audit,users,settings,classes:classesView,promote,backup,quality,fees,attendance,certs,results,freports:feeReports,paperfund:paperFund,profile:profileView,profiles:profilesAdmin,rollover:rollover,fines:fines})[v](arg);
 }
 
 // ---------- Dashboard (real counts from DB) ----------
@@ -1124,6 +1125,45 @@ async function loadMonths(id){
    ${data.map(r=>`<tr><td>${esc(lab(r.month))}${r.kind!=="Monthly"?` <small>(${esc(r.kind)})</small>`:""}</td><td>${rs(r.amount)}</td><td>${rs(r.paid)}</td><td>${rs(r.due)}</td><td>${tag(r.status)}</td><td>${esc(r.paid_on||"-")}</td></tr>`).join("")}</table></div>
    <small style="color:var(--mut)">Payments go to the oldest unpaid month first. Paper fund is not counted here.</small>`;
 }
+// ---------- Fines (separate from fees and their receipts) ----------
+async function fines(){
+  const [{data:set},{data:bal},{data:rec}]=await Promise.all([
+    sb.from("settings").select("fine_absent,fine_uniform").single(),
+    sb.from("fine_balances").select("pending_count,pending_amount"),
+    sb.from("fine_payments").select("id,receipt_no,amount,paid_on,voided,students(full_name,admission_no)").order("created_at",{ascending:false}).limit(15)]);
+  const tot=(bal||[]).reduce((a,r)=>a+Number(r.pending_amount||0),0),cnt=(bal||[]).reduce((a,r)=>a+r.pending_count,0);
+  $("#view").innerHTML=`<div class="grid"><div class="card stat"><b>${rs(tot)}</b><span>Pending fines</span></div><div class="card stat"><b>${cnt}</b><span>Pending items</span></div></div>
+   <div class="card" style="margin-top:12px"><h3>Find student</h3><div class="top"><input id="fq" placeholder="Admission no. or name"><button id="fb">Find</button></div><div id="fr"></div></div>
+   ${role==="admin"?`<div class="card" style="margin-top:12px"><h3>Fine amounts</h3><div class="top"><label>Absent (per day) <input id="fa" type="number" min="0" value="${set?.fine_absent??20}" style="flex:0;width:110px"></label><label>Uniform <input id="fu" type="number" min="0" value="${set?.fine_uniform??50}" style="flex:0;width:110px"></label><button id="fsv">Save</button></div><small style="color:var(--mut)">Leave is never fined. Changes apply to new fines only.</small></div>`:""}
+   <div class="card" style="margin-top:12px"><h3>Recent fine receipts</h3>${(rec||[]).length?`<div class="tw"><table><tr><th>Receipt</th><th>Student</th><th>Date</th><th>Amount</th><th></th></tr>${rec.map(x=>`<tr><td>${esc(x.receipt_no)}${x.voided?" (void)":""}</td><td>${esc(x.students?.full_name)} (${esc(x.students?.admission_no)})</td><td>${esc(x.paid_on)}</td><td>${rs(x.amount)}</td><td><button class="s" onclick="printFineReceipt('${x.id}')">Reprint</button>${role==="admin"&&!x.voided?` <button class="d" onclick="voidFine('${x.id}')">Void</button>`:""}</td></tr>`).join("")}</table></div>`:'<div class="empty">No fine receipts yet</div>'}</div>`;
+  $("#fb").onclick=fineFind;$("#fq").onkeydown=e=>{if(e.key==="Enter")fineFind()};
+  if(role==="admin")$("#fsv").onclick=async()=>{const {error}=await sb.from("settings").update({fine_absent:Number($("#fa").value)||0,fine_uniform:Number($("#fu").value)||0}).eq("id",1);error?toast(error.message,false):toast("Fine amounts saved")};
+}
+async function fineFind(){const t=$("#fq").value.trim().replace(/[,()%]/g," ");if(!t)return;
+  const {data}=await sb.from("students").select("id,admission_no,full_name,father_name,class_name").eq("archived",false).or(`full_name.ilike.%${t}%,admission_no.ilike.%${t}%,father_name.ilike.%${t}%`).limit(8);
+  $("#fr").innerHTML=(data||[]).map(s=>`<div class="row"><span style="width:auto">${esc(s.admission_no)} · ${esc(s.full_name)} · ${esc(s.class_name)}</span><button class="s" onclick="fineOpen('${s.id}')">Open</button></div>`).join("")||'<div class="empty">No student found</div>'}
+async function fineOpen(id){
+  const [{data:s},{data:fs}]=await Promise.all([sb.from("students").select("admission_no,full_name,father_name,class_name").eq("id",id).single(),
+    sb.from("fines").select("id,kind,amount,fine_date,reason,status").eq("student_id",id).order("fine_date",{ascending:false}).limit(200)]);
+  const pend=(fs||[]).filter(x=>x.status==="Pending");
+  $("#fr").innerHTML=`<div class="card" style="margin-top:8px"><b>${esc(s.full_name)}</b> (${esc(s.admission_no)}) · ${esc(s.class_name)} · S/o ${esc(s.father_name)}
+   <div class="top" style="margin-top:8px"><select id="fk" style="flex:0"><option>Uniform</option><option>Other</option></select><input id="fam" type="number" min="1" placeholder="Amount" style="flex:0;width:110px"><input id="frs" placeholder="Reason (optional)"><button id="fad">Add fine</button></div>
+   <table><tr><th></th><th>Date</th><th>Type</th><th>Amount</th><th>Status</th><th></th></tr>${(fs||[]).map(x=>`<tr><td>${x.status==="Pending"?`<input type="checkbox" class="fpk" value="${x.id}" checked>`:""}</td><td>${esc(x.fine_date)}</td><td>${esc(x.kind)}${x.reason?` <small>${esc(x.reason)}</small>`:""}</td><td>${rs(x.amount)}</td><td><span class="tag">${esc(x.status)}</span></td><td>${x.status==="Pending"&&role==="admin"?`<button class="s" onclick="waiveFine(${x.id},'${id}')">Waive</button>`:""}</td></tr>`).join("")||'<tr><td colspan=6 class="empty">No fines</td></tr>'}</table>
+   <div class="top" style="margin-top:8px"><b id="fsum">Pending: ${rs(pend.reduce((a,x)=>a+Number(x.amount),0))}</b><input id="fnote" placeholder="Note (optional)"><button id="fcol" ${pend.length?"":"disabled"}>Collect selected & print</button></div></div>`;
+  document.querySelectorAll(".fpk").forEach(i=>i.onchange=()=>{const sum=[...document.querySelectorAll(".fpk:checked")].reduce((a,c)=>a+Number(pend.find(x=>String(x.id)===c.value).amount),0);$("#fsum").textContent="Selected: "+rs(sum)});
+  $("#fad").onclick=async()=>{const {error}=await sb.rpc("add_fine",{p_sid:id,p_kind:$("#fk").value,p_amount:Number($("#fam").value),p_reason:$("#frs").value});error?toast(error.message,false):(toast("Fine added"),fineOpen(id))};
+  $("#fcol").onclick=async e=>{const ids=[...document.querySelectorAll(".fpk:checked")].map(i=>Number(i.value));if(!ids.length)return toast("Select at least one fine",false);
+    e.target.disabled=true;const {data:pid,error}=await sb.rpc("collect_fines",{p_sid:id,p_ids:ids,p_note:$("#fnote").value});
+    if(error){e.target.disabled=false;return toast(error.message,false)}toast("Fine collected");printFineReceipt(pid);fineOpen(id)};
+}
+async function waiveFine(fid,sid){const why=prompt("Reason for waiving this fine (required):");if(!why)return;
+  const {error}=await sb.rpc("waive_fine",{fid,why});error?toast(error.message,false):(toast("Waived"),fineOpen(sid))}
+async function voidFine(pid){if(!confirm("Void this fine receipt? The fines go back to Pending."))return;const {error}=await sb.rpc("void_fine_payment",{pid});error?toast(error.message,false):(toast("Voided"),fines())}
+async function printFineReceipt(id){const w=window.open("","_blank");if(!w)return toast("Allow pop-ups to print",false);
+  const {data:p}=await sb.from("fine_payments").select("receipt_no,amount,paid_on,voided,students(full_name,admission_no,class_name)").eq("id",id).single();
+  const [{data:fs},{data:set}]=await Promise.all([sb.from("fines").select("kind,amount,reason").eq("payment_id",id),sb.from("settings").select("school_name").single()]);
+  w.document.write(`<!doctype html><meta charset="utf-8"><title>${esc(p.receipt_no)}</title><style>body{font:14px Arial;padding:10mm}.r{border:2px solid #0b2447;max-width:140mm;padding:8mm}h2{margin:0;text-align:center;color:#0b2447}table{width:100%;border-collapse:collapse;margin-top:8px}td,th{border:1px solid #999;padding:6px;text-align:left}.v{color:#c00;text-align:center;font-weight:bold;font-size:20px}</style><div class="r"><h2>${esc(set?.school_name)}</h2><p style="text-align:center;margin:4px 0">Fine Receipt</p>${p.voided?'<div class="v">VOID</div>':""}<table><tr><td>Receipt no.</td><td>${esc(p.receipt_no)}</td></tr><tr><td>Date</td><td>${esc(p.paid_on)}</td></tr><tr><td>Student</td><td>${esc(p.students?.full_name)} (${esc(p.students?.admission_no)})</td></tr><tr><td>Class</td><td>${esc(p.students?.class_name)}</td></tr></table><table><tr><th>Fine</th><th>Amount</th></tr>${(fs||[]).map(f=>`<tr><td>${esc(f.kind)}${f.reason?" – "+esc(f.reason):""}</td><td>${rs(f.amount)}</td></tr>`).join("")}<tr><th>Total</th><th>${rs(p.amount)}</th></tr></table><p style="margin-top:20mm">Signature: ____________</p></div>`);
+  w.document.close();w.focus();setTimeout(()=>w.print(),400)}
 
 
 
