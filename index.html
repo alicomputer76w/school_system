@@ -1074,6 +1074,98 @@ function logoBox(s){
     const {error}=await sb.from("settings").update({logo_path:null}).eq("id",1);if(error)return toast(error.message,false);
     await sb.storage.from("school-assets").remove([s.logo_path]);toast("Logo removed");settings()};
 }
+// ---------- WhatsApp templates (from Settings) ----------
+let TPL={fee:"",paper:"",absent:"",fine:"",school:"The South Punjab School",backupDays:7};
+async function loadTpl(){const {data}=await sb.from("settings").select("school_name,tpl_fee,tpl_paper,tpl_absent,tpl_fine,backup_days").single();
+  if(!data)return;TPL={fee:data.tpl_fee,paper:data.tpl_paper,absent:data.tpl_absent,fine:data.tpl_fine,school:data.school_name,backupDays:data.backup_days||7}}
+function fillTpl(t,v){const mon=new Date().toLocaleDateString("en-GB",{month:"long",year:"numeric"});
+  return String(t||"").replace(/\{(name|class|amount|month|date|school)\}/g,(_,k)=>({name:v.name??"",class:v.class??"",amount:v.amount??"",month:v.month??mon,date:v.date??todayStr(),school:TPL.school})[k])}
+function waLink(phone,text,label="WhatsApp"){if(!phone||!/^03\d{9}$/.test(phone))return"";
+  return `<a target="_blank" rel="noopener" href="https://wa.me/92${phone.slice(1)}?text=${encodeURIComponent(text)}">${label}</a>`}
+async function dashExtras(){
+  if(!canEdit())return;
+  try{
+    const t=todayStr();
+    const [fd,pfp,ab,mk,pend,df,sm,set,stu]=await Promise.all([
+      sb.rpc("fee_daily",{d1:t,d2:t}),
+      sb.from("paper_fund").select("amount").eq("status","Submitted").eq("paid_on",t).limit(1000),
+      sb.from("attendance").select("student_id",{count:"exact",head:true}).eq("att_date",t).eq("status","A"),
+      sb.from("attendance").select("class_name").eq("att_date",t).limit(1000),
+      sb.from("students").select("id",{count:"exact",head:true}).eq("archived",false).in("workflow",["Submitted","Under Review"]),
+      sb.from("fee_defaulters").select("balance").limit(1000),
+      sb.rpc("paper_fund_summary"),
+      sb.from("settings").select("last_backup,backup_days").single(),
+      sb.from("students").select("id",{count:"exact",head:true}).eq("archived",false)]);
+    if(!$("#view").textContent.includes("Class-wise students"))return; // user already moved to another screen
+    const sum=(a,f)=>(a||[]).reduce((x,r)=>x+Number(f(r)||0),0),
+      fee=sum(fd.data,r=>r.total),rc=sum(fd.data,r=>r.receipts),paper=sum(pfp.data,r=>r.amount),marked=new Set((mk.data||[]).map(x=>x.class_name)).size,
+      dues=df.data||[],dueSum=sum(dues,r=>r.balance),pfPend=sum(sm.data,r=>r.pending),pfAmt=sum(sm.data,r=>r.pending_amt);
+    const lb=set.data?.last_backup,days=lb?Math.floor((Date.now()-new Date(lb))/864e5):null;let bk="";
+    if((stu.count||0)>0&&(lb==null||days>=(set.data?.backup_days||7))){
+      const msg=lb==null?"No backup has been taken yet.":`The last backup was ${days} day${days===1?"":"s"} ago.`;
+      bk=`<div class="warn" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px"><span>⚠ ${msg} ${role==="admin"?"Please take a backup now.":"Please ask the admin to take a backup."}</span>${role==="admin"?'<button onclick="go(\'backup\')">Take backup now</button>':""}</div>`;
+    }else if(lb&&role==="admin")bk=`<div style="color:var(--mut);font-size:13px;margin-bottom:8px">✅ Last backup: ${days===0?"today":days+" day"+(days===1?"":"s")+" ago"}</div>`;
+    const C=(v,l,to,c)=>`<div class="card stat" style="cursor:pointer" onclick="go('${to}')"><b style="${String(v).startsWith("Rs")?"font-size:21px;white-space:nowrap;":""}${c?`color:var(${c})`:""}">${v}</b><span>${l}</span></div>`;
+    $("#view").insertAdjacentHTML("afterbegin",`${bk}<h3 style="margin:0 0 8px">Today · ${t}</h3><div class="grid">
+      ${C(rs(fee),`Fee collected (${rc} receipts)`,"freports")}${C(rs(paper),"Paper fund collected","paperfund")}
+      ${C(ab.count??0,`Absent today · ${marked} of ${classes.length} classes marked`,"attendance",(ab.count||0)>0?"--err":"")}
+      ${C(pend.count??0,"Registrations awaiting approval","list",(pend.count||0)>0?"--err":"")}
+      ${C(dues.length>=1000?"1000+":dues.length,`Fee defaulters · ${rs(dueSum)} due`,"fees")}${C(pfPend,`Paper fund pending · ${rs(pfAmt)}`,"paperfund")}</div>`);
+  }catch(e){}
+}
+
+async function settings(){
+  const {data:s,error}=await sb.from("settings").select("*").single();
+  if(error)return toast(error.message,false);
+  const v=x=>esc(x??""),gl=(s.grades||[]).map(([m,g])=>m+"="+g).join("\n");
+  $("#view").innerHTML=`<form class="card" id="stf" style="display:grid;gap:14px"><h2 style="margin:0">Settings</h2>
+   <h3>School identity <small style="color:var(--mut);font-weight:400">shown on receipts, certificates and report cards</small></h3>
+   <div class="form">
+    <label>School name<input name="school_name" value="${v(s.school_name)}" required></label>
+    <label>Principal's name<input name="principal_name" value="${v(s.principal_name)}" placeholder="Name of principal"></label>
+    <label>Phone<input name="school_phone" value="${v(s.school_phone)}" placeholder="0300-1234567"></label>
+    <label>Email<input name="school_email" type="email" value="${v(s.school_email)}"></label>
+    <label style="grid-column:1/-1">Address<input name="school_address" value="${v(s.school_address)}"></label>
+    <label style="grid-column:1/-1">Footer text on receipts<input name="doc_footer" value="${v(s.doc_footer)}" placeholder="Thank you for choosing our school"></label>
+   </div>
+   <h3>Academic year</h3>
+   <div class="form">
+    <label>Current session<input name="academic_session" value="${v(s.academic_session)}" placeholder="2026-27" required></label>
+    <label>Session starts<input name="session_start" type="date" value="${v(s.session_start)}"></label>
+    <label>Session ends<input name="session_end" type="date" value="${v(s.session_end)}"></label>
+    <label>Admission prefix<input name="adm_prefix" value="${v(s.adm_prefix)}" pattern="[A-Za-z0-9]{1,10}" required></label>
+    <label>Year in admission no.<select name="adm_include_year"><option value="true" ${s.adm_include_year?"selected":""}>Yes</option><option value="false" ${s.adm_include_year?"":"selected"}>No</option></select></label>
+   </div>
+   <h3>Results</h3>
+   <div class="form">
+    <label>Pass mark (% in every subject)<input name="pass_pct" type="number" min="0" max="100" step="0.5" value="${v(s.pass_pct)}"></label>
+    <label style="grid-column:1/-1">Grades, one per line: minimum % = grade (the lowest line must be 0)<textarea name="grades" rows="7">${v(gl)}</textarea></label>
+   </div>
+   <h3>WhatsApp messages <small style="color:var(--mut);font-weight:400">Use {name} {class} {amount} {month} {date} {school}. Buttons fill these in; you still press Send.</small></h3>
+   <div class="form">
+    <label style="grid-column:1/-1">Fee reminder<textarea name="tpl_fee" rows="2" maxlength="500">${v(s.tpl_fee)}</textarea></label>
+    <label style="grid-column:1/-1">Paper fund reminder<textarea name="tpl_paper" rows="2" maxlength="500">${v(s.tpl_paper)}</textarea></label>
+    <label style="grid-column:1/-1">Absent (ghair hazir) message<textarea name="tpl_absent" rows="2" maxlength="500">${v(s.tpl_absent)}</textarea></label>
+    <label style="grid-column:1/-1">Fine message<textarea name="tpl_fine" rows="2" maxlength="500">${v(s.tpl_fine)}</textarea></label>
+   </div>
+   <h3>Backup reminder</h3>
+   <div class="form"><label>Remind me if the last backup is older than (days, 1 to 60)<input name="backup_days" type="number" min="1" max="60" value="${v(s.backup_days||7)}"></label></div>
+   <div><button>Save settings</button> <span class="tag">New documents use the new values</span></div></form>`;
+  logoBox(s);
+  $("#stf").onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
+    let grades;try{grades=f.grades.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{const [m,g]=l.split("=");const n=Number(m);if(!g||isNaN(n)||n<0||n>100)throw 0;return [n,g.trim()]}).sort((a,b)=>b[0]-a[0])}catch{return toast("Each grade line must look like 80=A+",false)}
+    if(!grades.length||grades[grades.length-1][0]!==0)return toast("The lowest grade line must be 0",false);
+    const upd={tpl_fee:f.tpl_fee.trim(),tpl_paper:f.tpl_paper.trim(),tpl_absent:f.tpl_absent.trim(),tpl_fine:f.tpl_fine.trim(),backup_days:Number(f.backup_days),school_name:f.school_name.trim(),principal_name:f.principal_name.trim()||null,school_phone:f.school_phone.trim()||null,school_email:f.school_email.trim()||null,
+      school_address:f.school_address.trim()||null,doc_footer:f.doc_footer.trim()||null,academic_session:f.academic_session.trim(),session_start:f.session_start||null,
+      session_end:f.session_end||null,adm_prefix:f.adm_prefix.trim(),adm_include_year:f.adm_include_year==="true",pass_pct:Number(f.pass_pct),grades};
+    if(!upd.tpl_fee||!upd.tpl_paper||!upd.tpl_absent||!upd.tpl_fine)return toast("Message templates cannot be empty",false);
+    if(!(upd.backup_days>=1&&upd.backup_days<=60))return toast("Backup days must be 1 to 60",false);
+    const {error}=await sb.from("settings").update(upd).eq("id",1);if(error)return toast(error.message,false);await loadTpl();toast("Settings saved")
+  };
+}
+
+
+
 
 // ---------- Audit log (admin) ----------
 async function audit(){
