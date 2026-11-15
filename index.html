@@ -6,7 +6,6 @@
 <script src="config.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Nastaliq+Urdu:wght@500&display=swap" rel="stylesheet">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📓</text></svg>">
 <style>
 :root{--navy:#0b2447;--blue:#19376d;--light:#e8f1fb;--bg:#f4f7fb;--card:#fff;--tx:#14213d;--mut:#64748b;--ok:#16a34a;--err:#dc2626;--bd:#d9e2ee}
 [data-t=dark]{--bg:#0b1220;--card:#131c2e;--tx:#e6edf7;--mut:#94a3b8;--light:#1b2a44;--bd:#25324a}
@@ -80,7 +79,7 @@ async function boot(){
   if(!session){$("#login").hidden=false;$("#app").hidden=true;return}
   const {data:p} = await sb.from("profiles").select("role,full_name").eq("id",session.user.id).single();
   role = p?.role || "viewer";
-  const {data:c} = await sb.from("classes").select("name").eq("active",true).order("sort"); classes = (c||[]).map(x=>x.name);
+  const {data:c} = await sb.from("classes").select("name").eq("active",true).order("sort"); classes = (c||[]).map(x=>x.name); await loadTpl();
   $("#login").hidden=true;$("#app").hidden=false;$("#who").textContent=(p?.full_name||session.user.email)+" · "+role;
   $("#navAdd").hidden=$("#navQ").hidden=$("#navFee").hidden=$("#navAtt").hidden=$("#navCert").hidden=$("#navRes").hidden=$("#navFR").hidden=$("#navPF").hidden=!canEdit();$("#navPP").hidden=role!=="admin";$("#navAudit").hidden=$("#navUsers").hidden=$("#navSet").hidden=$("#navCls").hidden=$("#navPro").hidden=$("#navBk").hidden=role!=="admin";
   $("#navRoll").hidden=role!=="admin";
@@ -355,7 +354,7 @@ async function review(id,d){if(d!=="Approved"&&!confirm("Reject this registratio
 
 // ---------- Fees ----------
 const rs=n=>"Rs "+Number(n||0).toLocaleString("en-PK");
-const wa=x=>x.father_phone?`<a href="https://wa.me/92${x.father_phone.slice(1)}?text=${encodeURIComponent(`Assalam o Alaikum. ${x.full_name} ki fee ${Math.round(x.balance)} rupay baqaya hai. - The South Punjab School`)}" target="_blank" rel="noopener">WhatsApp</a>`:"";
+const wa=x=>waLink(x.father_phone,fillTpl(TPL.fee,{name:x.full_name,father:x.father_name,class:(x.class_name||"")+(x.section?" "+x.section:""),amount:Math.round(x.balance)}));
 async function fees(){
   const [{data:cl},{data:df}]=await Promise.all([sb.from("classes").select("id,name,monthly_fee").order("sort"),
     sb.from("fee_defaulters").select("*").order("class_name").order("full_name").limit(1000)]);
@@ -469,7 +468,7 @@ async function attLoad(){
    <button id="asv" style="margin-top:10px">Save attendance</button>`;
   const refresh=()=>{let p=0,a=0,l=0;document.querySelectorAll("#ab tr[data-id]").forEach(tr=>{const v=tr.querySelector("input:checked")?.value,s=map[tr.dataset.id];
       if(v==="P")p++;if(v==="A")a++;if(v==="L")l++;
-      tr.querySelector(".wa").innerHTML=v==="A"&&s.father_phone?`<a target="_blank" rel="noopener" href="https://wa.me/92${s.father_phone.slice(1)}?text=${encodeURIComponent(`Assalam o Alaikum. ${s.full_name} aaj (${d}) school se ghair hazir hai. - The South Punjab School`)}">WhatsApp</a>`:""});
+      tr.querySelector(".wa").innerHTML=v==="A"&&s.father_phone?`<a target="_blank" rel="noopener" href="https://wa.me/92${s.father_phone.slice(1)}?text=${encodeURIComponent(fillTpl(TPL.absent,{name:s.full_name,father:s.father_name,class:c,date:d}))}">WhatsApp</a>`:""});
     $("#asum").textContent=`P ${p} · A ${a} · L ${l} · unmarked ${st.length-p-a-l}`};
   $("#ab").onchange=refresh;refresh();
   $("#ap").onclick=()=>{document.querySelectorAll('#ab input[value="P"]').forEach(i=>i.checked=true);refresh()};
@@ -677,7 +676,7 @@ async function paperFund(){
   let list=[];
   const load=async()=>{let q=sb.from("paper_fund_pending").select("*").eq("session",ses).order("class_name").order("full_name").limit(1000);const c=$("#pfcl").value;if(c)q=q.eq("class_name",c);
     const {data,error}=await q;if(error)return toast(error.message,false);list=data;
-    $("#pfl").innerHTML=list.length?`<div class="tw"><table><tr><th>Adm</th><th>Name</th><th>Class</th><th>Amount</th><th></th></tr>${list.map(x=>`<tr><td>${esc(x.admission_no)}</td><td>${esc(x.full_name)}</td><td>${esc(x.class_name)} ${esc(x.section)}</td><td>${rs(x.amount)}</td><td style="white-space:nowrap"><button class="s" onclick="openFee('${x.id}')">Collect</button> ${x.father_phone?`<a target="_blank" rel="noopener" href="https://wa.me/92${x.father_phone.slice(1)}?text=${encodeURIComponent(`Assalam o Alaikum. ${x.full_name} ka Annual Paper Fund ${Math.round(x.amount)} rupay baqaya hai. - The South Punjab School`)}">WhatsApp</a>`:""}</td></tr>`).join("")}</table></div>`:'<div class="empty">No pending paper fund 🎉</div>'};
+    $("#pfl").innerHTML=list.length?`<div class="tw"><table><tr><th>Adm</th><th>Name</th><th>Class</th><th>Amount</th><th></th></tr>${list.map(x=>`<tr><td>${esc(x.admission_no)}</td><td>${esc(x.full_name)}</td><td>${esc(x.class_name)} ${esc(x.section)}</td><td>${rs(x.amount)}</td><td style="white-space:nowrap"><button class="s" onclick="openFee('${x.id}')">Collect</button> ${waLink(x.father_phone,fillTpl(TPL.paper,{name:x.full_name,father:x.father_name,class:(x.class_name||"")+(x.section?" "+x.section:""),amount:Math.round(x.amount)}))}</td></tr>`).join("")}</table></div>`:'<div class="empty">No pending paper fund 🎉</div>'};
   $("#pfcl").onchange=load;load();
   $("#pfc").onclick=()=>dl("paper-fund-pending.csv",["Admission No,Name,Father,Class,Amount,Phone",...list.map(x=>[x.admission_no,x.full_name,x.father_name,x.class_name,x.amount,x.father_phone].map(csvCell).join(","))].join("\r\n"));
   if(role!=="admin")return;
@@ -967,13 +966,13 @@ async function fineFind(){const t=$("#fq").value.trim().replace(/[,()%]/g," ");i
   const {data}=await sb.from("students").select("id,admission_no,full_name,father_name,class_name").eq("archived",false).or(`full_name.ilike.%${t}%,admission_no.ilike.%${t}%,father_name.ilike.%${t}%`).limit(8);
   $("#fr").innerHTML=(data||[]).map(s=>`<div class="row"><span style="width:auto">${esc(s.admission_no)} · ${esc(s.full_name)} · ${esc(s.class_name)}</span><button class="s" onclick="fineOpen('${s.id}')">Open</button></div>`).join("")||'<div class="empty">No student found</div>'}
 async function fineOpen(id){
-  const [{data:s},{data:fs}]=await Promise.all([sb.from("students").select("admission_no,full_name,father_name,class_name").eq("id",id).single(),
+  const [{data:s},{data:fs}]=await Promise.all([sb.from("students").select("admission_no,full_name,father_name,class_name,father_phone").eq("id",id).single(),
     sb.from("fines").select("id,kind,amount,fine_date,reason,status").eq("student_id",id).order("fine_date",{ascending:false}).limit(200)]);
   const pend=(fs||[]).filter(x=>x.status==="Pending");
   $("#fr").innerHTML=`<div class="card" style="margin-top:8px"><b>${esc(s.full_name)}</b> (${esc(s.admission_no)}) · ${esc(s.class_name)} · S/o ${esc(s.father_name)}
    <div class="top" style="margin-top:8px"><select id="fk" style="flex:0"><option>Uniform</option><option>Other</option></select><input id="fam" type="number" min="1" placeholder="Amount" style="flex:0;width:110px"><input id="frs" placeholder="Reason (optional)"><button id="fad">Add fine</button></div>
    <table><tr><th></th><th>Date</th><th>Type</th><th>Amount</th><th>Status</th><th></th></tr>${(fs||[]).map(x=>`<tr><td>${x.status==="Pending"?`<input type="checkbox" class="fpk" value="${x.id}" checked>`:""}</td><td>${esc(x.fine_date)}</td><td>${esc(x.kind)}${x.reason?` <small>${esc(x.reason)}</small>`:""}</td><td>${rs(x.amount)}</td><td><span class="tag">${esc(x.status)}</span></td><td>${x.status==="Pending"&&role==="admin"?`<button class="s" onclick="waiveFine(${x.id},'${id}')">Waive</button>`:""}</td></tr>`).join("")||'<tr><td colspan=6 class="empty">No fines</td></tr>'}</table>
-   <div class="top" style="margin-top:8px"><b id="fsum">Pending: ${rs(pend.reduce((a,x)=>a+Number(x.amount),0))}</b><input id="fnote" placeholder="Note (optional)"><button id="fcol" ${pend.length?"":"disabled"}>Collect selected & print</button></div></div>`;
+   <div class="top" style="margin-top:8px">${pend.length?waLink(s.father_phone,fillTpl(TPL.fine,{name:s.full_name,father:s.father_name,class:s.class_name,amount:pend.reduce((a,x)=>a+Number(x.amount),0)}),"WhatsApp fine message"):""}<b id="fsum">Pending: ${rs(pend.reduce((a,x)=>a+Number(x.amount),0))}</b><input id="fnote" placeholder="Note (optional)"><button id="fcol" ${pend.length?"":"disabled"}>Collect selected & print</button></div></div>`;
   document.querySelectorAll(".fpk").forEach(i=>i.onchange=()=>{const sum=[...document.querySelectorAll(".fpk:checked")].reduce((a,c)=>a+Number(pend.find(x=>String(x.id)===c.value).amount),0);$("#fsum").textContent="Selected: "+rs(sum)});
   $("#fad").onclick=async()=>{const {error}=await sb.rpc("add_fine",{p_sid:id,p_kind:$("#fk").value,p_amount:Number($("#fam").value),p_reason:$("#frs").value});error?toast(error.message,false):(toast("Fine added"),fineOpen(id))};
   $("#fcol").onclick=async e=>{const ids=[...document.querySelectorAll(".fpk:checked")].map(i=>Number(i.value));if(!ids.length)return toast("Select at least one fine",false);
@@ -1015,44 +1014,6 @@ async function fineReport(){
 }
 
 // ---------- Settings (school identity + academic rules) ----------
-async function settings(){
-  const {data:s,error}=await sb.from("settings").select("*").single();
-  if(error)return toast(error.message,false);
-  const v=x=>esc(x??""),gl=(s.grades||[]).map(([m,g])=>m+"="+g).join("\n");
-  $("#view").innerHTML=`<form class="card" id="stf" style="display:grid;gap:14px"><h2 style="margin:0">Settings</h2>
-   <h3>School identity <small style="color:var(--mut);font-weight:400">shown on receipts, certificates and report cards</small></h3>
-   <div class="form">
-    <label>School name<input name="school_name" value="${v(s.school_name)}" required></label>
-    <label>Principal's name<input name="principal_name" value="${v(s.principal_name)}" placeholder="Name of principal"></label>
-    <label>Phone<input name="school_phone" value="${v(s.school_phone)}" placeholder="0300-1234567"></label>
-    <label>Email<input name="school_email" type="email" value="${v(s.school_email)}"></label>
-    <label style="grid-column:1/-1">Address<input name="school_address" value="${v(s.school_address)}"></label>
-    <label style="grid-column:1/-1">Footer text on receipts<input name="doc_footer" value="${v(s.doc_footer)}" placeholder="Thank you for choosing our school"></label>
-   </div>
-   <h3>Academic year</h3>
-   <div class="form">
-    <label>Current session<input name="academic_session" value="${v(s.academic_session)}" placeholder="2026-27" required></label>
-    <label>Session starts<input name="session_start" type="date" value="${v(s.session_start)}"></label>
-    <label>Session ends<input name="session_end" type="date" value="${v(s.session_end)}"></label>
-    <label>Admission prefix<input name="adm_prefix" value="${v(s.adm_prefix)}" pattern="[A-Za-z0-9]{1,10}" required></label>
-    <label>Year in admission no.<select name="adm_include_year"><option value="true" ${s.adm_include_year?"selected":""}>Yes</option><option value="false" ${s.adm_include_year?"":"selected"}>No</option></select></label>
-   </div>
-   <h3>Results</h3>
-   <div class="form">
-    <label>Pass mark (% in every subject)<input name="pass_pct" type="number" min="0" max="100" step="0.5" value="${v(s.pass_pct)}"></label>
-    <label style="grid-column:1/-1">Grades, one per line: minimum % = grade (the lowest line must be 0)<textarea name="grades" rows="7">${v(gl)}</textarea></label>
-   </div>
-   <div><button>Save settings</button> <span class="tag">New documents use the new values</span></div></form>`;
-  logoBox(s);
-  $("#stf").onsubmit=async e=>{e.preventDefault();const f=Object.fromEntries(new FormData(e.target));
-    let grades;try{grades=f.grades.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{const [m,g]=l.split("=");const n=Number(m);if(!g||isNaN(n)||n<0||n>100)throw 0;return [n,g.trim()]}).sort((a,b)=>b[0]-a[0])}catch{return toast("Each grade line must look like 80=A+",false)}
-    if(!grades.length||grades[grades.length-1][0]!==0)return toast("The lowest grade line must be 0",false);
-    const upd={school_name:f.school_name.trim(),principal_name:f.principal_name.trim()||null,school_phone:f.school_phone.trim()||null,school_email:f.school_email.trim()||null,
-      school_address:f.school_address.trim()||null,doc_footer:f.doc_footer.trim()||null,academic_session:f.academic_session.trim(),session_start:f.session_start||null,
-      session_end:f.session_end||null,adm_prefix:f.adm_prefix.trim(),adm_include_year:f.adm_include_year==="true",pass_pct:Number(f.pass_pct),grades};
-    const {error}=await sb.from("settings").update(upd).eq("id",1);error?toast(error.message,false):toast("Settings saved");
-  };
-}
 
 // ---------- School logo (admin only) ----------
 function logoUrlOf(path){return path?sb.storage.from("school-assets").getPublicUrl(path).data.publicUrl:""}
@@ -1074,12 +1035,14 @@ function logoBox(s){
     const {error}=await sb.from("settings").update({logo_path:null}).eq("id",1);if(error)return toast(error.message,false);
     await sb.storage.from("school-assets").remove([s.logo_path]);toast("Logo removed");settings()};
 }
+
 // ---------- WhatsApp templates (from Settings) ----------
 let TPL={fee:"",paper:"",absent:"",fine:"",school:"The South Punjab School",backupDays:7};
 async function loadTpl(){const {data}=await sb.from("settings").select("school_name,tpl_fee,tpl_paper,tpl_absent,tpl_fine,backup_days").single();
   if(!data)return;TPL={fee:data.tpl_fee,paper:data.tpl_paper,absent:data.tpl_absent,fine:data.tpl_fine,school:data.school_name,backupDays:data.backup_days||7}}
 function fillTpl(t,v){const mon=new Date().toLocaleDateString("en-GB",{month:"long",year:"numeric"});
-  return String(t||"").replace(/\{(name|class|amount|month|date|school)\}/g,(_,k)=>({name:v.name??"",class:v.class??"",amount:v.amount??"",month:v.month??mon,date:v.date??todayStr(),school:TPL.school})[k])}
+  const amt=typeof v.amount==="number"?v.amount.toLocaleString("en-PK"):(v.amount??"");
+  return String(t||"").replace(/\{(name|father|class|amount|month|date|school)\}/g,(_,k)=>({name:v.name??"",father:v.father??"",class:v.class??"",amount:amt,month:v.month??mon,date:v.date??todayStr(),school:TPL.school})[k])}
 function waLink(phone,text,label="WhatsApp"){if(!phone||!/^03\d{9}$/.test(phone))return"";
   return `<a target="_blank" rel="noopener" href="https://wa.me/92${phone.slice(1)}?text=${encodeURIComponent(text)}">${label}</a>`}
 async function dashExtras(){
@@ -1141,12 +1104,12 @@ async function settings(){
     <label>Pass mark (% in every subject)<input name="pass_pct" type="number" min="0" max="100" step="0.5" value="${v(s.pass_pct)}"></label>
     <label style="grid-column:1/-1">Grades, one per line: minimum % = grade (the lowest line must be 0)<textarea name="grades" rows="7">${v(gl)}</textarea></label>
    </div>
-   <h3>WhatsApp messages <small style="color:var(--mut);font-weight:400">Use {name} {class} {amount} {month} {date} {school}. Buttons fill these in; you still press Send.</small></h3>
+   <h3>WhatsApp messages <small style="color:var(--mut);font-weight:400">Use {name} (student), {father} (father), {amount}, {month}, {date}, {class}, {school}. Buttons fill these in; you still press Send.</small></h3>
    <div class="form">
-    <label style="grid-column:1/-1">Fee reminder<textarea name="tpl_fee" rows="2" maxlength="500">${v(s.tpl_fee)}</textarea></label>
-    <label style="grid-column:1/-1">Paper fund reminder<textarea name="tpl_paper" rows="2" maxlength="500">${v(s.tpl_paper)}</textarea></label>
-    <label style="grid-column:1/-1">Absent (ghair hazir) message<textarea name="tpl_absent" rows="2" maxlength="500">${v(s.tpl_absent)}</textarea></label>
-    <label style="grid-column:1/-1">Fine message<textarea name="tpl_fine" rows="2" maxlength="500">${v(s.tpl_fine)}</textarea></label>
+    <label style="grid-column:1/-1">Fee reminder<textarea name="tpl_fee" rows="2" maxlength="1000">${v(s.tpl_fee)}</textarea></label>
+    <label style="grid-column:1/-1">Paper fund reminder<textarea name="tpl_paper" rows="2" maxlength="1000">${v(s.tpl_paper)}</textarea></label>
+    <label style="grid-column:1/-1">Absent (ghair hazir) message<textarea name="tpl_absent" rows="2" maxlength="1000">${v(s.tpl_absent)}</textarea></label>
+    <label style="grid-column:1/-1">Fine message<textarea name="tpl_fine" rows="2" maxlength="1000">${v(s.tpl_fine)}</textarea></label>
    </div>
    <h3>Backup reminder</h3>
    <div class="form"><label>Remind me if the last backup is older than (days, 1 to 60)<input name="backup_days" type="number" min="1" max="60" value="${v(s.backup_days||7)}"></label></div>
@@ -1163,8 +1126,6 @@ async function settings(){
     const {error}=await sb.from("settings").update(upd).eq("id",1);if(error)return toast(error.message,false);await loadTpl();toast("Settings saved")
   };
 }
-
-
 
 
 // ---------- Audit log (admin) ----------
